@@ -77,7 +77,10 @@ import app.opentv.core.requestIgnoreBatteryOptimizations
 import app.opentv.data.model.Channel
 import app.opentv.data.model.Programme
 import app.opentv.data.model.Reminder
+import app.opentv.data.model.catchupCovers
 import app.opentv.data.model.shownName
+import app.opentv.data.parser.M3uCatchup
+import app.opentv.data.remote.XtreamApi
 import app.opentv.reminders.ReminderScheduler
 import app.opentv.player.PlaybackQueue
 import app.opentv.player.PlayerController
@@ -573,23 +576,52 @@ fun HomeScreen(
                         recordTarget = null
                     }
                     // A finished programme on a catch-up channel plays back from the archive.
-                    isPast && channel.tvArchive -> RecordActionRow(stringResource(R.string.guide_watch_from_start), primary = true) {
-                        recordScope.launch {
-                            val source = graph.sourceRepository.byId(channel.sourceId)
-                            if (source == null) {
-                                Toast.makeText(context, context.getString(R.string.guide_catchup_link_failed), Toast.LENGTH_SHORT).show()
-                            } else {
-                                val mins = (programme.durationMillis / 60000).toInt().coerceAtLeast(1)
-                                val url = graph.xtreamApi.catchupUrl(source, channel.streamId, programme.startUtcMillis, mins)
-                                onPlayCatchup(
-                                    "catchup:${channel.id}:${programme.startUtcMillis}",
-                                    url,
-                                    "${channel.shownName} — ${programme.title}",
-                                    source.userAgent,
-                                )
+                    // Only when the archive still reaches that far back: a link the provider
+                    // answers with a 404 reads as a broken app, not as an archive that stops
+                    // seven days back.
+                    isPast && channel.tvArchive -> {
+                        if (channel.catchupCovers(programme.startUtcMillis, nowMillis)) {
+                            RecordActionRow(stringResource(R.string.guide_watch_from_start), primary = true) {
+                                recordScope.launch {
+                                    val source = graph.sourceRepository.byId(channel.sourceId)
+                                    if (source == null) {
+                                        Toast.makeText(context, context.getString(R.string.guide_catchup_link_failed), Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        // Two ways to reach the archive. A playlist that describes its own
+                                        // catch-up gives us the template, tokens and all; an Xtream login
+                                        // gives us the account, and the URL is built from that.
+                                        val template = channel.catchupSource
+                                        val url = if (template != null) {
+                                            M3uCatchup.buildUrl(
+                                                template = template,
+                                                startUtcMillis = programme.startUtcMillis,
+                                                endUtcMillis = programme.endUtcMillis,
+                                                nowUtcMillis = System.currentTimeMillis(),
+                                                correctionSecs = channel.catchupCorrectionSecs,
+                                                zone = XtreamApi.zoneOf(source.timezone),
+                                            )
+                                        } else {
+                                            val mins = (programme.durationMillis / 60000).toInt().coerceAtLeast(1)
+                                            graph.xtreamApi.catchupUrl(source, channel.streamId, programme.startUtcMillis, mins)
+                                        }
+                                        onPlayCatchup(
+                                            "catchup:${channel.id}:${programme.startUtcMillis}",
+                                            url,
+                                            "${channel.shownName} — ${programme.title}",
+                                            source.userAgent,
+                                        )
+                                    }
+                                }
+                                recordTarget = null
                             }
+                        } else {
+                            InfoRow(
+                                stringResource(
+                                    R.string.guide_catchup_outside_window,
+                                    channel.tvArchiveDays,
+                                ),
+                            )
                         }
-                        recordTarget = null
                     }
                     !isPast -> RecordActionRow(stringResource(R.string.rec_schedule_recording), primary = true) {
                         recordScope.launch { graph.recordingEngine.scheduleProgramme(chosenVariant, programme) }
@@ -632,13 +664,17 @@ fun HomeScreen(
                         }
                     }
                 }
-                RecordActionRow(stringResource(R.string.rec_record_series)) {
-                    recordScope.launch {
-                        graph.recordingEngine.recordSeries(channel, programme, targetRow.programmes)
+                // A series rule for a programme that has already aired would schedule a
+                // recording in the past, so the row only makes sense for what is still to come.
+                if (!isPast) {
+                    RecordActionRow(stringResource(R.string.rec_record_series)) {
+                        recordScope.launch {
+                            graph.recordingEngine.recordSeries(channel, programme, targetRow.programmes)
+                        }
+                        Toast.makeText(context, context.getString(R.string.rec_series_recording_set, programme.title), Toast.LENGTH_LONG).show()
+                        promptBackgroundIfNeeded()
+                        recordTarget = null
                     }
-                    Toast.makeText(context, context.getString(R.string.rec_series_recording_set, programme.title), Toast.LENGTH_LONG).show()
-                    promptBackgroundIfNeeded()
-                    recordTarget = null
                 }
                 RecordActionRow(stringResource(R.string.guide_watch_channel)) {
                     recordTarget = null
@@ -690,6 +726,13 @@ fun HomeScreen(
         val nowProg = menuRow.now
         val recordingThis = activeRecordings.firstOrNull { it.channelId == channel.id }
         val upcoming = menuRow.programmes.filter { it.startUtcMillis > nowMillis }.take(8)
+        // What the channel has already aired, and the provider still keeps. The guide grid
+        // starts at the current half-hour, so the past never reaches the screen on its own —
+        // without this list the catch-up button is a dead one.
+        var finished by remember(menuRow.key) { mutableStateOf<List<Programme>>(emptyList()) }
+        LaunchedEffect(menuRow.key) {
+            finished = viewModel.finishedProgrammes(menuRow, nowMillis)
+        }
         Dialog(onDismissRequest = { channelMenu = null }) {
             Column(
                 Modifier
@@ -769,6 +812,25 @@ fun HomeScreen(
                             channelMenu = null
                         }
                     }
+                    if (finished.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            stringResource(R.string.guide_catchup_earlier),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        finished.forEach { programme ->
+                            RecordActionRow(
+                                "${formatProgrammeTime(programme.startUtcMillis, nowMillis)}   ${programme.title}",
+                            ) {
+                                // The programme dialog, where the catch-up action lives — the same
+                                // place every other programme is handled from.
+                                channelMenu = null
+                                recordTarget = menuRow to programme
+                            }
+                        }
+                    }
                     if (upcoming.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         Text(
@@ -825,6 +887,25 @@ private suspend fun setReminder(
         ),
     )
     ReminderScheduler.set(context, id, programme.startUtcMillis)
+}
+
+/**
+ * A row that says something rather than doing something.
+ *
+ * Used when an action exists but cannot be taken right now — a programme older than the
+ * provider's archive. It reads as text, not as a button, so nobody taps it and waits for a
+ * player that is never going to come.
+ */
+@Composable
+private fun InfoRow(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
@@ -1102,4 +1183,28 @@ private fun EmptyState(onAddSource: () -> Unit) {
 /** UTC in the database, device zone on screen. Converted here and nowhere else. */
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
+private val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+
 private fun formatTime(utcMillis: Long): String = timeFormat.format(Date(utcMillis))
+
+/**
+ * A finished programme's time, with the day spelled out when it is not today.
+ *
+ * "20:00" for today, "Yesterday 20:00" for the day before, "Mon 20:00" further back. The
+ * catch-up list is mostly yesterday, and a bare clock time would not say which day it was.
+ */
+@Composable
+private fun formatProgrammeTime(utcMillis: Long, nowUtcMillis: Long): String {
+    val time = formatTime(utcMillis)
+    val then = java.util.Calendar.getInstance().apply { timeInMillis = utcMillis }
+    val now = java.util.Calendar.getInstance().apply { timeInMillis = nowUtcMillis }
+    // Days between the two dates, counted on the calendar rather than in milliseconds, so a
+    // clock change in the night does not make yesterday look like two days ago.
+    val days = (now.get(java.util.Calendar.YEAR) - then.get(java.util.Calendar.YEAR)) * 365 +
+        (now.get(java.util.Calendar.DAY_OF_YEAR) - then.get(java.util.Calendar.DAY_OF_YEAR))
+    return when (days) {
+        0 -> time
+        1 -> stringResource(R.string.guide_yesterday, time)
+        else -> "${dayFormat.format(Date(utcMillis))} $time"
+    }
+}

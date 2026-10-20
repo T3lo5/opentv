@@ -139,4 +139,84 @@ class M3uParserTest {
         assertThat(result.channels).isEmpty()
         assertThat(result.skippedEntries).isEqualTo(0)
     }
+
+    @Test
+    fun `a channel with no catch-up tags has no catch-up`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="a",Channel A
+            http://example.com/a.m3u8
+        """.trimIndent()
+
+        val channel = M3uParser.parse(playlist, sourceId = 1).channels.single()
+
+        assertThat(channel.tvArchive).isFalse()
+        assertThat(channel.catchupSource).isNull()
+        assertThat(channel.catchupMode).isNull()
+        assertThat(channel.catchupCorrectionSecs).isEqualTo(0)
+    }
+
+    @Test
+    fun `the catch-up tags land on the channel, template and all`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="a" catchup="append" catchup-source="&cutv={Y}-{m}-{d}T{H}:{M}:{S}" catchup-days="7",Channel A
+            http://example.com/a.m3u8
+        """.trimIndent()
+
+        val channel = M3uParser.parse(playlist, sourceId = 1).channels.single()
+
+        assertThat(channel.tvArchive).isTrue()
+        assertThat(channel.catchupMode).isEqualTo("append")
+        assertThat(channel.catchupSource)
+            .isEqualTo("http://example.com/a.m3u8&cutv={Y}-{m}-{d}T{H}:{M}:{S}")
+        assertThat(channel.tvArchiveDays).isEqualTo(7)
+    }
+
+    @Test
+    fun `the playlist's own catch-up tags are the default for its channels`() {
+        val playlist = """
+            #EXTM3U catchup="shift" catchup-correction="-3.0"
+            #EXTINF:-1 tvg-id="a",Channel A
+            http://example.com/a.m3u8
+        """.trimIndent()
+
+        val channel = M3uParser.parse(playlist, sourceId = 1).channels.single()
+
+        assertThat(channel.tvArchive).isTrue()
+        assertThat(channel.catchupMode).isEqualTo("shift")
+        assertThat(channel.catchupSource)
+            .isEqualTo("http://example.com/a.m3u8?utc={utc}&lutc={lutc}")
+        // The playlist writes the correction in hours; the app keeps it in seconds.
+        assertThat(channel.catchupCorrectionSecs).isEqualTo(-3 * 3600)
+    }
+
+    @Test
+    fun `a channel's own catch-up tags beat the playlist's`() {
+        val playlist = """
+            #EXTM3U catchup="shift"
+            #EXTINF:-1 tvg-id="a" catchup="default" catchup-source="http://example.com/a.ts?utc={utc}",Channel A
+            http://example.com/a.m3u8
+        """.trimIndent()
+
+        val channel = M3uParser.parse(playlist, sourceId = 1).channels.single()
+
+        assertThat(channel.catchupMode).isEqualTo("default")
+        assertThat(channel.catchupSource).isEqualTo("http://example.com/a.ts?utc={utc}")
+    }
+
+    @Test
+    fun `a catch-up mode we do not know leaves the channel without catch-up`() {
+        // Better no catch-up than a URL assembled from a mode we did not understand.
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="a" catchup="maybe" catchup-source="http://example.com/a.ts?utc={utc}",Channel A
+            http://example.com/a.m3u8
+        """.trimIndent()
+
+        val channel = M3uParser.parse(playlist, sourceId = 1).channels.single()
+
+        assertThat(channel.tvArchive).isFalse()
+        assertThat(channel.catchupSource).isNull()
+    }
 }

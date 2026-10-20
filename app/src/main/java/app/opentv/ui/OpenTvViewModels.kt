@@ -22,6 +22,7 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.data.model.StremioStream
 import app.opentv.data.model.StreamKind
+import app.opentv.data.model.catchupCovers
 import app.opentv.data.parser.displayTitle
 import app.opentv.data.parser.ChannelNameNormalizer
 import app.opentv.data.repo.CatalogRepository
@@ -476,6 +477,27 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
         count < 2000 -> "Loading $count channels — a small one, this'll be quick."
         count < 8000 -> "Loading $count channels — a fair few, give me a moment…"
         else -> "Loading $count channels — a big one, bear with me, I'm on it…"
+    }
+
+    /**
+     * The programmes this channel has already finished, newest first — the catch-up list.
+     *
+     * The guide grid starts at the current half-hour, so the past never reaches the screen
+     * even though the rows are still in the table. They are exactly what the archive plays
+     * back, and they are the difference between a catch-up feature and a dead button.
+     *
+     * Only what the provider still keeps is offered: a link to a recording it has thrown
+     * away is a 404 waiting to happen.
+     */
+    suspend fun finishedProgrammes(row: Row, nowUtcMillis: Long, limit: Int = 12): List<Programme> {
+        val channel = row.primary
+        if (!channel.tvArchive) return emptyList()
+        val past = graph.epgRepository.finished(
+            epgChannelIds = row.variants.flatMap { it.epgCandidates },
+            nowUtcMillis = nowUtcMillis,
+            limit = limit,
+        )
+        return past.filter { channel.catchupCovers(it.startUtcMillis, nowUtcMillis) }
     }
 
     val favourites: StateFlow<List<Channel>> =

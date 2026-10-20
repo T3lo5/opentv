@@ -106,6 +106,7 @@ fun AddSourceScreen(
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
+    var timezone by remember(existing?.id) { mutableStateOf(existing?.timezone ?: "") }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
     // are preserved; a fresh add starts from a blank Source (id 0, so save() inserts).
@@ -121,6 +122,7 @@ fun AddSourceScreen(
         macAddress = mac.takeIf { it.isNotBlank() },
         epgUrl = epgUrl.takeIf { it.isNotBlank() },
         userAgent = userAgent.ifBlank { Source.DEFAULT_USER_AGENT },
+        timezone = timezone.takeIf { it.isNotBlank() },
     )
 
     val canSubmit = url.isNotBlank() && when (kind) {
@@ -269,6 +271,17 @@ fun AddSourceScreen(
                     label = { Text("User-Agent") },
                     supportingText = {
                         Text(stringResource(R.string.onboarding_user_agent_help))
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = timezone,
+                    onValueChange = { timezone = it },
+                    label = { Text(stringResource(R.string.onboarding_timezone_optional)) },
+                    supportingText = {
+                        Text(stringResource(R.string.onboarding_timezone_help))
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),

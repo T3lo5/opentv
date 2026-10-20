@@ -37,6 +37,7 @@
     <string name="guide_all_channels">All channels</string>
     <string name="guide_watch_from_start">▶  Watch from start (catch-up)</string>
     <string name="guide_catchup_link_failed">Couldn\'t build the catch-up link</string>
+    <string name="guide_catchup_outside_window">The provider\'s archive only goes back %1$d days</string>
     <string name="guide_cancel_reminder">🔔  Cancel reminder</string>
     <string name="guide_reminder_removed">Reminder removed</string>
     <string name="guide_remind_me">🔔  Remind me</string>
@@ -51,6 +52,8 @@
     <string name="guide_no_external_player">No external player installed</string>
     <string name="guide_record_now_playing">●  Record what\'s on now</string>
     <string name="guide_later_header">Later — record or remind</string>
+    <string name="guide_catchup_earlier">Earlier — watch from start</string>
+    <string name="guide_yesterday">Yesterday %1$s</string>
     <string name="guide_no_info">No guide information</string>
     <string name="guide_next_prefix">Next  %1$s  %2$s</string>
     <string name="guide_loading_channels">Loading your channels</string>
@@ -371,6 +374,8 @@
     <string name="onboarding_guide_url_optional">Guide (XMLTV) URL — optional</string>
     <string name="onboarding_guide_blank_help">Leave blank to use your provider\'s guide automatically.</string>
     <string name="onboarding_user_agent_help">Some providers block unfamiliar apps with a 403. If every channel fails, try a common player\'s User-Agent here.</string>
+    <string name="onboarding_timezone_optional">Timezone — optional</string>
+    <string name="onboarding_timezone_help">The provider\'s own timezone, e.g. Europe/Paris. Catch-up links ask for the recording on that clock, not on this device\'s. Leave blank to use your device\'s time.</string>
     <string name="onboarding_working">Working…</string>
     <string name="onboarding_save_load">Save and load</string>
     <string name="onboarding_use_phone">Use my phone instead</string>

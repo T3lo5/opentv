@@ -86,6 +86,28 @@ class EpgRepository(
     suspend fun upcoming(epgChannelId: String, nowUtcMillis: Long, limit: Int = 12): List<Programme> =
         programmeDao.upcoming(epgChannelId, nowUtcMillis, limit)
 
+    /**
+     * The programmes a channel has already finished, most recent first — what catch-up plays.
+     *
+     * The guide grid starts at the current half-hour, so the past never reaches the screen
+     * even though the rows are still in the table. The candidate ids are walked in the same
+     * order the guide uses (override → provider → matched) and the first one that has
+     * anything wins, so a channel whose override id never lights up still finds its
+     * programmes.
+     */
+    suspend fun finished(
+        epgChannelIds: List<String>,
+        nowUtcMillis: Long,
+        limit: Int = 12,
+    ): List<Programme> {
+        val since = nowUtcMillis - RETENTION_PAST_MILLIS
+        for (id in epgChannelIds) {
+            val past = programmeDao.finished(id, nowUtcMillis, since, limit)
+            if (past.isNotEmpty()) return past
+        }
+        return emptyList()
+    }
+
     // ---- Feed management -------------------------------------------------------------------
 
     suspend fun addCustomFeed(name: String, url: String) {
@@ -109,6 +131,12 @@ class EpgRepository(
     /**
      * Makes sure the standing feed rows exist: one per provider source, plus the curated
      * built-in list. Insert-if-absent, so user toggles survive every call.
+     *
+     * A built-in whose file has been renamed upstream is *repointed* rather than duplicated:
+     * the host that serves these guides renames files now and then (the US and Canadian
+     * ones moved from 1 to 2), and a row pointing at a file that no longer exists is a dead
+     * feed the user cannot fix from the settings screen. Repointing keeps the user's
+     * on/off choice and the programmes already downloaded.
      */
     suspend fun ensureFeeds() {
         for (source in sourceDao.enabled()) {
@@ -123,6 +151,12 @@ class EpgRepository(
             }
         }
         for ((name, url) in BUILT_IN_FEEDS) {
+            val existing = feedDao.builtInByName(name)
+            if (existing != null) {
+                if (existing.url != url) feedDao.setUrl(existing.id, url)
+                continue
+            }
+            // The user added this URL themselves: do not create a second copy of it.
             if (feedDao.byUrl(url) == null) {
                 // Off by default: shipping a switched-on 20 MB download for a country the
                 // user may not live in would be rude. The EPG settings screen makes
@@ -131,12 +165,6 @@ class EpgRepository(
             }
         }
     }
-     *
-     * A built-in whose file has been renamed upstream is *repointed* rather than duplicated:
-     * the host that serves these guides renames files now and then (the US and Canadian
-     * ones moved from 1 to 2), and a row pointing at a file that no longer exists is a dead
-     * feed the user cannot fix from the settings screen. Repointing keeps the user's
-     * on/off choice and the programmes already downloaded.
 
     // ---- Sync ------------------------------------------------------------------------------
 
@@ -151,12 +179,6 @@ class EpgRepository(
             var written = 0
 
             for (feed in feedDao.enabled()) {
-            val existing = feedDao.builtInByName(name)
-            if (existing != null) {
-                if (existing.url != url) feedDao.setUrl(existing.id, url)
-                continue
-            }
-            // The user added this URL themselves: do not create a second copy of it.
                 if (!force && nowUtcMillis - feed.lastSyncMillis < REFRESH_INTERVAL_MILLIS) {
                     succeeded++
                     continue
@@ -372,6 +394,12 @@ class EpgRepository(
          *
          * The UK Freeview entry is GPL-3.0 (same licence as OpenTV), regenerated every
          * 12 h, ~270 channels with logos — verified working before it earned this slot.
+         *
+         * The epgshare01 files are numbered per country, and the host renumbers them when
+         * it regroups a feed: the US and Canadian ones moved from 1 to 2. A stale number
+         * is a 404, and the settings screen can only say so — so the numbers here are
+         * checked against the server's own index, which also lists the current date and
+         * size of every file.
          */
         /** A region needs at least this many prefixed channels before we act on it. */
         const val MIN_CHANNELS_FOR_AUTO_REGION = 5
@@ -394,12 +422,6 @@ class EpgRepository(
                 "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz",
             "USA — epgshare01" to
                 "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz",
-         *
-         * The epgshare01 files are numbered per country, and the host renumbers them when
-         * it regroups a feed: the US and Canadian ones moved from 1 to 2. A stale number
-         * is a 404, and the settings screen can only say so — so the numbers here are
-         * checked against the server's own index, which also lists the current date and
-         * size of every file.
             "Canada — epgshare01" to
                 "https://epgshare01.online/epgshare01/epg_ripper_CA2.xml.gz",
             "Australia — epgshare01" to

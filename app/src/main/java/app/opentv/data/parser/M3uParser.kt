@@ -45,6 +45,9 @@ object M3uParser {
         var pendingName: String? = null
         var pendingAttributes: Map<String, String> = emptyMap()
         var pendingNumber: Int? = null
+        var pendingCatchup: CatchupTags? = null
+        // Playlist-wide catch-up defaults, from the #EXTM3U header (Kodi reads them there too).
+        var catchupDefaults = CatchupDefaults()
         // #EXTVLCOPT / #EXTHTTP lines that apply to the next URL.
         var index = 0
 
@@ -58,12 +61,14 @@ object M3uParser {
                     declaredEpgUrl = attributes["url-tvg"]
                         ?: attributes["x-tvg-url"]
                         ?: declaredEpgUrl
+                    catchupDefaults = catchupDefaults.mergedWith(catchupDefaultsOf(attributes))
                 }
 
                 line.startsWith("#EXTINF", ignoreCase = true) -> {
                     pendingAttributes = parseAttributes(line)
                     pendingName = displayNameOf(line, pendingAttributes)
                     pendingNumber = pendingAttributes["tvg-chno"]?.toIntOrNull()
+                    pendingCatchup = catchupTagsOf(pendingAttributes, catchupDefaults)
                 }
 
                 // Any other directive: ignore, but keep the pending EXTINF alive.
@@ -85,6 +90,10 @@ object M3uParser {
                         // first and drop later duplicates rather than letting them collide on
                         // the unique index and abort the whole import.
                         if (seenStreamIds.add(streamId)) {
+                            val tags = pendingCatchup
+                            val catchupSource = tags?.let {
+                                M3uCatchup.sourceFor(it.mode, it.declaredSource, line, flussonicTs = it.tsStream)
+                            }
                             channels += Channel(
                                 sourceId = sourceId,
                                 streamId = streamId,
@@ -93,6 +102,11 @@ object M3uParser {
                                 logoUrl = (attributes["tvg-logo"] ?: attributes["logo"])
                                     ?.takeIf { it.isNotBlank() },
                                 epgChannelId = attributes["tvg-id"]?.takeIf { it.isNotBlank() },
+                                tvArchive = catchupSource != null,
+                                tvArchiveDays = tags?.days ?: 0,
+                                catchupSource = catchupSource,
+                                catchupMode = tags?.mode?.tag?.takeIf { catchupSource != null },
+                                catchupCorrectionSecs = tags?.correctionSecs ?: 0,
                                 number = pendingNumber,
                                 streamUrl = line,
                                 sortIndex = index++,
@@ -102,6 +116,7 @@ object M3uParser {
                     pendingName = null
                     pendingAttributes = emptyMap()
                     pendingNumber = null
+                    pendingCatchup = null
                 }
             }
         }
