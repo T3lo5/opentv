@@ -48,6 +48,35 @@ class AppSettings private constructor(context: Context) {
     private val _subtitlesEnabled = MutableStateFlow(prefs.getBoolean(KEY_SUBTITLES, true))
     val subtitlesEnabled: StateFlow<Boolean> = _subtitlesEnabled.asStateFlow()
 
+    /**
+     * How much video the player keeps buffered.
+     *
+     * The setting exists because the right answer is different on every box: one is short of
+     * memory and would rather start quickly, another is on a bad line and would rather wait.
+     * It applies to ordinary playback — the guide preview, the DVR window and a recording
+     * still being written keep their own tuning, which is measured for what they do.
+     */
+    private val _bufferPreset = MutableStateFlow(savedBufferPreset(context))
+    val bufferPreset: StateFlow<BufferPreset> = _bufferPreset.asStateFlow()
+
+    fun setBufferPreset(preset: BufferPreset) {
+        prefs.edit().putString(KEY_BUFFER_PRESET, preset.name).apply()
+        _bufferPreset.value = preset
+    }
+
+    /**
+     * Which decoder the player reaches for. AUTO leaves it to the platform, which is right
+     * almost always; SOFTWARE_FIRST is the escape hatch for a box whose hardware decoder
+     * mangles a particular codec.
+     */
+    private val _decoderPreference = MutableStateFlow(savedDecoderPreference(context))
+    val decoderPreference: StateFlow<DecoderPreference> = _decoderPreference.asStateFlow()
+
+    fun setDecoderPreference(preference: DecoderPreference) {
+        prefs.edit().putString(KEY_DECODER, preference.name).apply()
+        _decoderPreference.value = preference
+    }
+
     /** Whether the selected channel plays live inside the guide's preview pane. */
     private val _guidePreviewVideo = MutableStateFlow(prefs.getBoolean(KEY_PREVIEW_VIDEO, true))
     val guidePreviewVideo: StateFlow<Boolean> = _guidePreviewVideo.asStateFlow()
@@ -429,6 +458,8 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_THEME = "theme_mode"
         private const val KEY_CHANNEL_LAYOUT = "channel_layout"
         private const val KEY_SUBTITLES = "subtitles_enabled"
+        private const val KEY_BUFFER_PRESET = "buffer_preset"
+        private const val KEY_DECODER = "decoder_preference"
         private const val KEY_PREVIEW_VIDEO = "guide_preview_video"
         private const val KEY_PREVIEW_SOUND = "guide_preview_sound"
         private const val KEY_PIN_HASH = "parental_pin_hash"
@@ -473,5 +504,32 @@ class AppSettings private constructor(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: AppSettings(context).also { instance = it }
             }
+
+        /**
+         * The stored buffer preset, read straight from the preferences.
+         *
+         * The singleton reads the same file when it is created, but a value written by
+         * another process — or by the settings screen a moment ago — is only visible here.
+         * The player asks at the moment a playback session opens, which is the moment the
+         * answer has to be right.
+         */
+        fun savedBufferPreset(context: Context): BufferPreset =
+            runCatching {
+                BufferPreset.fromStoredValue(
+                    context.applicationContext
+                        .getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
+                        .getString(KEY_BUFFER_PRESET, null),
+                )
+            }.getOrDefault(BufferPreset.DEFAULT)
+
+        /** The stored decoder preference, read straight from the preferences. */
+        fun savedDecoderPreference(context: Context): DecoderPreference =
+            runCatching {
+                DecoderPreference.fromStoredValue(
+                    context.applicationContext
+                        .getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
+                        .getString(KEY_DECODER, null),
+                )
+            }.getOrDefault(DecoderPreference.AUTO)
     }
 }

@@ -199,6 +199,15 @@
     <string name="settings_subtitles_subtitle">The default for new channels. While watching, the Subtitles button on the player lets you pick a specific track or turn them off.</string>
     <string name="settings_resume_title">Resume last channel on startup</string>
     <string name="settings_resume_subtitle">Open the app straight into the channel you were last watching, instead of the guide. Press Back to reach the guide.</string>
+    <string name="settings_buffer_title">Playback buffer</string>
+    <string name="settings_buffer_default">Default — balanced</string>
+    <string name="settings_buffer_small">Small — starts fast, uses less memory</string>
+    <string name="settings_buffer_medium">Medium</string>
+    <string name="settings_buffer_large">Large — steadier on a bad line</string>
+    <string name="settings_buffer_extra_large">Extra large — the steadiest, the most memory</string>
+    <string name="settings_buffer_note">How much video the player keeps in memory. A bigger buffer rides out a bad connection; a smaller one starts sooner. It applies the next time you open a channel.</string>
+    <string name="settings_decoder_title">Prefer the software decoder</string>
+    <string name="settings_decoder_subtitle">For boxes whose hardware decoder stutters or shows green picture. Slower, but correct where the hardware one is not. It applies the next time you open a channel.</string>
     <string name="settings_sleep_timer">Sleep timer</string>
     <string name="settings_sleep_off_desc">Off — playback keeps going until you stop it.</string>
     <string name="settings_sleep_on_desc">On — playback will stop in about %1$d min.</string>
