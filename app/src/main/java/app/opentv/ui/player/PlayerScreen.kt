@@ -40,20 +40,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -64,7 +69,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -103,6 +110,11 @@ import app.opentv.core.requestIgnoreBatteryOptimizations
 import app.opentv.data.model.Channel
 import app.opentv.data.model.shownName
 import app.opentv.player.PlaybackQueue
+import app.opentv.ui.formatBehind
+import app.opentv.ui.formatDuration
+import androidx.lifecycle.viewmodel.compose.viewModel
+import app.opentv.ui.ChannelsViewModel
+import app.opentv.ui.channels.GuideGrid
 import app.opentv.player.PlayerController
 import app.opentv.ui.RecordingBackgroundDialog
 import app.opentv.ui.RecordingBackgroundPrompt
@@ -111,6 +123,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -176,10 +190,32 @@ fun PlayerScreen(
     var numberEntry by remember { mutableStateOf("") }
     var paused by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableIntStateOf(settings.playerResizeMode.value) }
+    // The transport's scrub bar. For a live stream the bar is a *window*, not a file: the
+    // right end is the live edge and the left end is as far back as the player can reach.
+    // For anything with a duration it is the ordinary position/duration pair.
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var barStartMs by remember { mutableLongStateOf(0L) }
+    var barEndMs by remember { mutableLongStateOf(0L) }
+    var barIsLive by remember { mutableStateOf(false) }
+    var canRewind by remember { mutableStateOf(false) }
+    var scrubbing by remember { mutableStateOf(false) }
+    var scrubValue by remember { mutableFloatStateOf(0f) }
 
     var controlsVisible by remember { mutableStateOf(true) }
     var panel by remember { mutableStateOf(Panel.NONE) }
     var channelListVisible by remember { mutableStateOf(false) }
+    // The guide, over the video. Watching a channel and wanting to know what else is on is
+    // the most ordinary thing a viewer does, and making it leave the player to find out is
+    // the kind of small hostility that makes an app feel like a website.
+    var guideVisible by remember { mutableStateOf(false) }
+    // The guide's data, and the view model behind it. Collected only while the guide is
+    // open: the EPG index is the most expensive thing the app builds, and a viewer who is
+    // watching television should not pay for it.
+    val guideViewModel: ChannelsViewModel = viewModel()
+    val guideWindowStart by guideViewModel.windowStartMillis.collectAsState()
+    val guideRows by remember(guideVisible) {
+        if (guideVisible) guideViewModel.rows else flowOf(emptyList())
+    }.collectAsState(initial = emptyList())
     var interaction by remember { mutableIntStateOf(0) }
     // Offered once per session the first time the user records here while OpenTV isn't exempt from
     // battery optimisation, so the capture survives the screen sleeping. Never blocks recording.
@@ -206,6 +242,7 @@ fun PlayerScreen(
     val panelFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
     val listFocus = remember { FocusRequester() }
+    val guideFocus = remember { FocusRequester() }
 
     // The channel list you were browsing, for channel up/down and the in-player list. Snapshotted
     // on entry so it doesn't shift under you mid-session.
@@ -298,6 +335,46 @@ fun PlayerScreen(
         if (subtitlesDefault && hasText && !textChosen) controller.setSubtitlesEnabled(true)
     }
 
+    // Poll the playhead for the transport bar. Half a second is quick enough to look live
+    // and slow enough to cost nothing on a weak box.
+    LaunchedEffect(Unit) {
+        val window = androidx.media3.common.Timeline.Window()
+        while (isActive) {
+            if (!scrubbing) {
+                val player = controller.player
+                val position = player.currentPosition.coerceAtLeast(0L)
+                positionMs = position
+
+                val timeline = player.currentTimeline
+                val live = !timeline.isEmpty && timeline.getWindow(0, window).isDynamic
+                barIsLive = live
+
+                if (live) {
+                    // Live TV: the bar is a window anchored to the **live edge**, not to the
+                    // playhead. The edge is the point the stream is being produced at, which
+                    // is what the timeline's default position says; the playhead sits
+                    // somewhere inside the window, and the window keeps sliding forward as
+                    // the stream plays. Anchoring to the playhead instead would make the bar
+                    // jump back to the right the moment the user let go of it.
+                    val edge = window.defaultPositionUs
+                        .takeIf { it != C.TIME_UNSET }
+                        ?.div(1000)
+                        ?: position
+                    val back = controller.backBufferMillis
+                    barStartMs = (edge - back).coerceAtLeast(0L)
+                    barEndMs = edge
+                    canRewind = back > 0 && player.isCurrentMediaItemSeekable
+                } else {
+                    val duration = player.duration.takeIf { it > 0 } ?: 0L
+                    barStartMs = 0L
+                    barEndMs = duration
+                    canRewind = duration > 0
+                }
+            }
+            delay(500)
+        }
+    }
+
     // Auto-hide the bar after a few seconds — but never while paused or with a picker open.
     LaunchedEffect(controlsVisible, interaction, state, paused, panel) {
         if (controlsVisible && !paused && panel == Panel.NONE &&
@@ -325,6 +402,7 @@ fun PlayerScreen(
     // you wanted to dismiss the bar.
     BackHandler {
         when {
+            guideVisible -> guideVisible = false
             channelListVisible -> channelListVisible = false
             panel != Panel.NONE -> panel = Panel.NONE
             controlsVisible -> controlsVisible = false
@@ -355,6 +433,15 @@ fun PlayerScreen(
         }
     }
 
+    // The guide takes the focus when it opens, so the d-pad walks the timeline and not the
+    // transport bar that is still behind it.
+    LaunchedEffect(guideVisible) {
+        if (guideVisible) {
+            delay(60)
+            runCatching { guideFocus.requestFocus() }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -370,8 +457,17 @@ fun PlayerScreen(
                         numberEntry = (numberEntry + digit).take(4)
                         reveal(); interaction++; true
                     }
-                    // A picker or the channel list owns the whole d-pad while it's up.
-                    channelListVisible || panel != Panel.NONE -> {
+                    // The remote's GUIDE key opens the guide, the way it does on a set-top
+                    // box — and closes it again. Checked before the "an overlay owns the
+                    // d-pad" rule below, or the second press would fall into the grid.
+                    event.key == Key.Guide -> {
+                        guideVisible = !guideVisible
+                        if (!guideVisible) channelListVisible = false
+                        interaction++
+                        true
+                    }
+                    // A picker, the channel list or the guide owns the whole d-pad while it's up.
+                    channelListVisible || guideVisible || panel != Panel.NONE -> {
                         interaction++
                         false
                     }
@@ -476,7 +572,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !inPip,
+            visible = controlsVisible && !inPip && !guideVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -522,8 +618,72 @@ fun PlayerScreen(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (controller.isSeekable) {
+                // The scrub bar. For live TV this is a window, not a file: the right end is
+                // the live edge and the left end is as far back as the player can reach, so
+                // the labels say so rather than pretending the stream has an end.
+                if (canRewind) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (barIsLive) formatBehind(barEndMs - positionMs) else formatDuration(barStartMs),
+                            color = Color.White,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Slider(
+                            value = if (scrubbing) scrubValue else positionMs.toFloat(),
+                            // A range of zero would make the slider unusable, so the end is
+                            // pushed a second past the start when there is nothing to show.
+                            valueRange = barStartMs.toFloat()..
+                                maxOf(barEndMs.toFloat(), barStartMs.toFloat() + 1f),
+                            onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
+                            onValueChangeFinished = {
+                                controller.player.seekTo(scrubValue.toLong())
+                                positionMs = scrubValue.toLong()
+                                scrubbing = false
+                                interaction++
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            if (barIsLive) stringResource(R.string.player_live) else formatDuration(barEndMs),
+                            color = Color.White,
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                } else if (barIsLive) {
+                    // This stream cannot be rewound. Saying where the past *is* beats
+                    // offering buttons that do nothing.
+                    Text(
+                        stringResource(R.string.player_no_rewind),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.75f),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    // The row can hold more chips than a phone in landscape fits — the
+                    // transport alone is ten of them now. Scrolling it sideways beats
+                    // squeezing the last one into a column of letters.
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
+                    // Where to go next, before the transport: the guide and the channel
+                    // list. Both used to mean walking out of the player and back in, which
+                    // is no way to change channel.
+                    BarChip(Icons.Filled.DateRange, stringResource(R.string.player_guide), false) {
+                        guideVisible = true
+                        channelListVisible = false
+                        interaction++
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    BarChip(Icons.Filled.List, stringResource(R.string.common_channels), false) {
+                        channelListVisible = true
+                        guideVisible = false
+                        interaction++
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    if (controller.isSeekable || canRewind) {
                         BarChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind), false) {
                             controller.seekBackward(); interaction++
                         }
@@ -539,10 +699,18 @@ fun PlayerScreen(
                         controller.player.playWhenReady = !paused
                         interaction++
                     }
-                    if (controller.isSeekable) {
+                    if (controller.isSeekable || canRewind) {
                         Spacer(Modifier.width(10.dp))
                         BarChip(Icons.Filled.FastForward, stringResource(R.string.player_forward), false) {
                             controller.seekForward(); interaction++
+                        }
+                    }
+                    if (barIsLive && canRewind) {
+                        // Back to the edge. The picture is a few seconds behind the stream
+                        // being produced — that is the live edge, and this is the way back.
+                        Spacer(Modifier.width(10.dp))
+                        BarChip(Icons.Filled.LiveTv, stringResource(R.string.player_live), false) {
+                            controller.seekToLive(); interaction++
                         }
                     }
 
@@ -635,6 +803,42 @@ fun PlayerScreen(
                         )
                     }
                 }
+            }
+        }
+
+        // The guide, over the video. The same grid the home screen shows, so what the viewer
+        // learns there is the same here: OK on a channel switches to it, and the d-pad walks
+        // the timeline. It draws over the picture rather than replacing it, so the channel
+        // being watched stays visible behind the guide.
+        AnimatedVisibility(
+            visible = guideVisible && !inPip,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.9f))
+                    // The guide takes the d-pad when it opens. Without this the focus would
+                    // stay on the transport bar behind it, and the arrows would walk the
+                    // chips instead of the timeline.
+                    .focusRequester(guideFocus)
+                    .focusable(),
+            ) {
+                GuideGrid(
+                    rows = guideRows,
+                    windowStartMillis = guideWindowStart,
+                    selectedKey = currentId?.let { id -> guideRows.firstOrNull { it.primary.id == id }?.key },
+                    // OK on a channel is "watch this one", not "open its menu": the viewer is
+                    // already watching something and the guide is a way to change that.
+                    onSelectRow = { row ->
+                        playChannelId(row.primary.id)
+                        guideVisible = false
+                    },
+                    onFocusRow = { },
+                    onExitLeftFromChannel = { guideVisible = false; true },
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                )
             }
         }
     }

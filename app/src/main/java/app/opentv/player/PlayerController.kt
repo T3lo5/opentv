@@ -354,6 +354,28 @@ class PlayerController(
 
     val isSeekable: Boolean get() = player.isCurrentMediaItemSeekable
 
+    /**
+     * How far back live TV can be rewound: the retained back buffer, zero when the shallow
+     * DVR is off.
+     *
+     * This is the *client-side* window — ExoPlayer holds the last couple of minutes of
+     * live TV in memory so a paused picture can be scrubbed. It is not the provider's
+     * archive: that is a different thing entirely, reached through the catch-up URL.
+     */
+    val backBufferMillis: Long get() = if (dvr) DVR_BACK_BUFFER_MILLIS.toLong() else 0L
+
+    /**
+     * Back to the live edge.
+     *
+     * The edge is where the stream is being produced, not where playback is: a live player
+     * deliberately rides a few seconds behind it so it can absorb a hiccup. ExoPlayer's
+     * default position is exactly that point, and for a live window it is the live edge
+     * minus the target offset — which is where the picture belongs.
+     */
+    fun seekToLive() {
+        player.seekToDefaultPosition()
+    }
+
     private fun firstSupportedIndex(group: Tracks.Group): Int {
         for (i in 0 until group.length) if (group.isTrackSupported(i)) return i
         return 0

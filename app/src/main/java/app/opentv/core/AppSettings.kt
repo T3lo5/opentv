@@ -180,8 +180,13 @@ class AppSettings private constructor(context: Context) {
     }
 
     /**
-     * Pause & rewind live TV via a rolling on-disk buffer of the current channel. Experimental and
-     * heavier on weak boxes, so it's opt-in (off by default); when off, playback is unchanged.
+     * Pause & rewind live TV: the player keeps the last couple of minutes of the current
+     * channel in memory, so a paused picture can be scrubbed back. Experimental, and it costs
+     * memory on a weak box, so it is opt-in (off by default); when off, playback is unchanged.
+     *
+     * This is the *client-side* window — a couple of minutes, and only for streams the
+     * player can seek in. The provider's own archive, days of past programmes, is the
+     * catch-up feature, and it works whatever this is set to.
      */
     private val _livePauseEnabled = MutableStateFlow(prefs.getBoolean(KEY_LIVE_PAUSE, false))
     val livePauseEnabled: StateFlow<Boolean> = _livePauseEnabled.asStateFlow()

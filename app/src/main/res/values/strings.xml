@@ -121,6 +121,9 @@
     <string name="player_rewind">Rewind</string>
     <string name="player_pause">Pause</string>
     <string name="player_forward">Forward</string>
+    <string name="player_live">LIVE</string>
+    <string name="player_guide">Guide</string>
+    <string name="player_no_rewind">This stream can\'t be rewound — the archive may be in the channel menu</string>
     <string name="player_subtitles">Subtitles</string>
     <string name="player_audio">Audio</string>
     <string name="player_quality">Quality</string>
@@ -279,7 +282,7 @@
     <string name="recset_autoswitch">Auto-switch when recording starts</string>
     <string name="recset_autoswitch_desc">On a single-connection provider, move the screen onto a recording as it starts (with a 30-second warning) so your live stream isn\'t cut off</string>
     <string name="recset_livepause">Pause &amp; rewind live TV</string>
-    <string name="recset_livepause_desc">Hold a couple of minutes of live TV in memory so you can pause and rewind it (experimental — uses more memory)</string>
+    <string name="recset_livepause_desc">Hold a couple of minutes of live TV in memory so the transport bar can rewind it. Only works on streams the player can seek in (experimental — uses more memory)</string>
     <string name="recset_pw_show">Show password</string>
     <string name="recset_pw_hide">Hide password</string>
     <string name="recset_storage_title">Storage</string>
