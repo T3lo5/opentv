@@ -13,6 +13,8 @@ import app.opentv.core.StatusBus
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -306,12 +308,20 @@ private fun NavRail(
         }
         Spacer(Modifier.height(8.dp))
 
-        tabs.forEach { t ->
-            RailItem(t.icon, stringResource(t.labelRes), expanded, current == t) { onSelect(t) }
+        // The tabs scroll when the screen is short; the actions at the bottom stay put. A
+        // phone in landscape is 411dp tall and the rail wants more than that, so without this
+        // the last item — Settings — falls off the bottom of the screen. Reaching the
+        // settings matters more than seeing every tab at once.
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tabs.forEach { t ->
+                RailItem(t.icon, stringResource(t.labelRes), expanded, current == t) { onSelect(t) }
+            }
         }
 
         Spacer(Modifier.height(1.dp).fillMaxWidth())
-        Spacer(Modifier.weight(1f))
 
         RailItem(Icons.Filled.Search, stringResource(R.string.nav_search), expanded, false, onOpenSearch)
         RailItem(Icons.Filled.Person, activeProfileName, expanded, false, onOpenProfiles)
