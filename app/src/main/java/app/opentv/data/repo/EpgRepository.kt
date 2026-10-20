@@ -131,6 +131,12 @@ class EpgRepository(
             }
         }
     }
+     *
+     * A built-in whose file has been renamed upstream is *repointed* rather than duplicated:
+     * the host that serves these guides renames files now and then (the US and Canadian
+     * ones moved from 1 to 2), and a row pointing at a file that no longer exists is a dead
+     * feed the user cannot fix from the settings screen. Repointing keeps the user's
+     * on/off choice and the programmes already downloaded.
 
     // ---- Sync ------------------------------------------------------------------------------
 
@@ -145,6 +151,12 @@ class EpgRepository(
             var written = 0
 
             for (feed in feedDao.enabled()) {
+            val existing = feedDao.builtInByName(name)
+            if (existing != null) {
+                if (existing.url != url) feedDao.setUrl(existing.id, url)
+                continue
+            }
+            // The user added this URL themselves: do not create a second copy of it.
                 if (!force && nowUtcMillis - feed.lastSyncMillis < REFRESH_INTERVAL_MILLIS) {
                     succeeded++
                     continue
@@ -381,9 +393,15 @@ class EpgRepository(
             "UK — epgshare01 (Sky lineup)" to
                 "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz",
             "USA — epgshare01" to
-                "https://epgshare01.online/epgshare01/epg_ripper_US1.xml.gz",
+                "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz",
+         *
+         * The epgshare01 files are numbered per country, and the host renumbers them when
+         * it regroups a feed: the US and Canadian ones moved from 1 to 2. A stale number
+         * is a 404, and the settings screen can only say so — so the numbers here are
+         * checked against the server's own index, which also lists the current date and
+         * size of every file.
             "Canada — epgshare01" to
-                "https://epgshare01.online/epgshare01/epg_ripper_CA1.xml.gz",
+                "https://epgshare01.online/epgshare01/epg_ripper_CA2.xml.gz",
             "Australia — epgshare01" to
                 "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz",
         )

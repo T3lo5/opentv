@@ -340,12 +340,26 @@ interface EpgFeedDao {
     @Query("UPDATE epg_feeds SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
+    /** One of the curated built-in feeds, by the name it is shown under. */
+    @Query("SELECT * FROM epg_feeds WHERE builtIn = 1 AND name = :name")
+    suspend fun builtInByName(name: String): EpgFeed?
+
     @Query("UPDATE epg_feeds SET lastSyncMillis = :millis, lastResult = :result WHERE id = :id")
     suspend fun markSynced(id: Long, millis: Long, result: String)
 
     @Query("DELETE FROM epg_feeds WHERE id = :id")
     suspend fun delete(id: Long)
 }
+    /**
+     * Points a feed at a different file.
+     *
+     * The sync stamps are cleared with it: the feed's last outcome described the old file,
+     * and the next sync has to run against the new one rather than wait out the interval
+     * on a URL that is now dead.
+     */
+    @Query("UPDATE epg_feeds SET url = :url, lastSyncMillis = 0, lastResult = '' WHERE id = :id")
+    suspend fun setUrl(id: Long, url: String)
+
 
 @Dao
 interface EpgChannelAliasDao {
