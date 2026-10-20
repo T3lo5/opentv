@@ -94,6 +94,18 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    sourceSets {
+        getByName("debug") {
+            // The exported Room schemas, so the migration tests can read the same files
+            // the instrumented ones do. Without this, a migration that does not produce
+            // exactly the schema Room expects is only found on a user's device.
+            //
+            // The debug variant only: the release APK has no reason to carry 460 KB of
+            // schema history, and the unit tests run against debug.
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
 }
 
 ksp {

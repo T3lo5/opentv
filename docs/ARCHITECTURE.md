@@ -183,6 +183,16 @@ exhaustively — and they are where the bugs that ruin someone's evening actuall
 malformed case in `M3uParserTest` is something that should cost the user one channel, never the
 whole playlist.
 
+The Room migrations are covered the same way. `DatabaseMigrationTest` creates the oldest
+schema the app ever shipped (version 2) with the data a user would miss if the upgrade wiped
+it — a source, a favourite channel, a programme — migrates it all the way to the current
+version, and checks both that the data survived and that the result matches the exported
+schema exactly. A mistyped `ALTER TABLE` would otherwise be found on a user's device, where
+the fix is `fallbackToDestructiveMigration`: the database rebuilt from nothing, with every
+favourite and every recording gone. The test needs the exported schemas as assets, so they
+are added to the **debug** variant only — the release APK has no reason to carry 460 KB of
+schema history.
+
 Things worth testing that are not yet covered, and would be very welcome contributions:
 
 - `EpgRepository.sync` against a mid-stream failure, asserting the old guide survives
