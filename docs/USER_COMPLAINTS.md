@@ -40,16 +40,81 @@ kept so any claim can be checked.
    playback on Google TV for 101 people; a Sparkle user writes "the developer doesn't respond to
    anything I sent"; TiviMate's support bounced users to a company with no contact details (81
    people agreed).
-5. **Ads and monetisation friction are the most-liked complaints in the whole study** — and they
-   are what an open-source app answers for free.
+5. **Ads and monetisation friction are the most-liked complaints in the store reviews** — and
+   they are what an open-source app answers for free. (In the communities, though, the ads
+   evidence is weak: what is there is developers advertising themselves. The real community
+   complaint is *abandonment* — a paid app that stops working when the developer moves on.)
 6. **Cross-device continuity does not exist.** The single most-liked complaint on TiviMate
-   (206 people) is that there is no way to back up your playlist and channel tweaks.
+   (206 people) is that there is no way to back up your playlist and channel tweaks. The
+   community's version of it: *"Saving the settings in the cloud would be my #1 wishlist
+   item"* — and another user's objection to a cloud sync that stores favourites in plaintext on
+   somebody else's server.
 7. **The two biggest names are gone.** IPTV Smarters Pro (22M downloads) was delisted from Play
    in January 2023; Perfect Player (7.1M installs) in December 2021. Both are now sideloaded
    from third-party sites, and Play is full of clones under their names. That population is
    unserved.
+8. **A stream that dies never comes back.** Ten people in one thread, and a developer's
+   two-year complaint list: a black screen, no timeout, no error, no recovery. The forums add
+   this one, and it is the cheapest big win on the list.
 
 **And the highest-signal evidence of all is our own issue tracker** — see the last section.
+
+---
+
+## What the community adds
+
+The forums were read last, and they corrected two things and added four.
+
+### A stream that dies never comes back
+
+The single most-repeated complaint in the community, and the one that is most clearly a bug
+rather than a taste:
+
+> "If a stream stops for a second, it shows the loading icon and it won't reconnect at all.
+> Basically you have to change the channel and go back again. This annoying issue is not
+> happening on any other applications so far."
+> — [r/TiviMate](https://www.reddit.com/r/TiviMate/comments/b29ksl/very_annoying_issue_on_all_versions_of_tivimate)
+> (37 entries, ~10 users confirming, pinned by a moderator)
+
+A developer's own two-year complaint list says it more sharply: *"Black screen when a stream
+dies. Most players just sit there. No timeout, no clear error, no 'try the next channel' button.
+You're staring at the wall."* And TROYPOINT's wishlist asks for it by name: *"if the channel goes
+down, it will retry 5 times real quick."*
+
+**We do reconnect — three times, 1.5 s apart — and then we stop and show an error.** The fix
+is the same shape as the complaint's: keep going with a backoff, and say *reconnecting* rather
+than *failed*. A black screen with no explanation is what people write threads about.
+
+### Two corrections to what the stores said
+
+- **Ads and data use are not a community complaint.** The store reviews made ads the most-liked
+  complaint in the whole study (MX Player's 7,234-helpful review). In the communities, the
+  evidence is *weak and not established*: what is there is developer positioning ("no ads", "no
+  telemetry") and one user's objection to a competitor's cloud sync storing favourites in
+  plaintext. So the honest claim for an open-source app is the one we can check — **no ads, no
+  server, no account** — and not a claim about other people's ads.
+- **Data usage is not a user complaint either.** Not found in the communities. The platform
+  research still stands on its own (Data Saver throttles a foreground TV app to 800 Kbps), but
+  it is a constraint, not a demand.
+
+### And four things the stores did not have
+
+| What | Evidence | Who answers it |
+|---|---|---|
+| **The stream's own details** — URL, video and audio bitrate and codec. *"Right now to see the stream URL I open in MXPlayer and then go to settings to see the URL."* | a few threads | Nobody. We have no such panel. |
+| **A list of only the channels that have catch-up.** *"I can see a clock icon next to the channels that support catch-up but I don't see how to access it? Is it also possible to have a separate item (list) only with channels that support catch-up?"* | a few threads | Nobody. Our catch-up list is per channel. |
+| **A lock on the provider's own screen.** *"When looking at Playlist, using m3u link, it shows my username and password — in turn they can copy it and give it out to other friends."* | a few threads | We have a parental PIN; it does not guard the credentials. |
+| **Closing the connection when the app goes away.** A *provider* complains: *"Tivimate notoriously doesn't terminate connections correctly either when flipping channels… or upon exiting the app."* | one thread, but externally visible | We do — the player stops the controller when the app is turned off (0.12.1). |
+
+### And the reason the whole category is distrusted
+
+> "I paid for a 'lifetime' IPTV player, the dev moved on, and it slowly stopped working — sound
+> familiar?" … "Most apps, especially IPTV ones, seem to just drop and never be heard about
+> again."
+
+That is the argument for the project existing, and it is not something a feature list can fix.
+It is why the sync is local, why there is no account, and why the release notes are written like
+this.
 
 ---
 
@@ -302,6 +367,11 @@ are the cheapest to justify.
    fires. Our guide and home screen return `false` for unhandled keys; the player's immersive
    branch has a catch-all that does not. Cheap to fix, and it is the difference between a remote
    that works on every stick and one that works on the stick it was tested on.
+7. **A stream that dies should come back, and say so.** We retry three times, 1.5 s apart, then
+   give up and show an error. The community's most-repeated playback complaint is a black
+   screen with no explanation and no recovery: keep retrying with a backoff, and say
+   *reconnecting* while it does. The state is already there — it is the wording and the
+   persistence that are missing.
 
 ### Next — the ones the whole category is bleeding on
 
@@ -330,6 +400,13 @@ are the cheapest to justify.
     path, and Play's TV criteria ask for it. Chromecast is asked for by name (43 helpful on
     Televizo; 2★ on Perfect Player). Miracast has no third-party sink API.
 13. **Playback speed** (asked for in Televizo reviews and expected everywhere else).
+14. **A list of only the channels that have catch-up**, the way the community asks for it:
+    a separate item, not a menu inside each channel. The per-channel list already works; the
+    thing that is missing is the index.
+15. **The stream's own details** — URL, video and audio bitrate and codec — in a panel, because
+    the alternative is opening another player to find out. It is also the fastest way to answer
+    "why is this channel buffering and that one is not", which is a question users ask each
+    other constantly.
 
 ### Deliberately not
 
@@ -337,9 +414,14 @@ are the cheapest to justify.
   63%; TiviMate's multiview praise is among the most-liked quotes in that app's reviews, 86
   helpful) but it is concurrent decoders on a stick, and the hardware research says a €25 stick
   has no media performance class at all.
-- **Server-backed sync.** We have the LAN path; a backend is the thing that killed Viewella.
-- **Ads, subscriptions, "premium".** The category's users have learned to distrust them.
-- **Blocking other apps' ads.** Not possible, and not our claim to make.
+- **Server-backed sync.** We have the LAN path; a backend is the thing that killed Viewella —
+  and the community's own objection is pointed: *"Cloud sync that asks for my email but then
+  stores your favorites in plaintext on someone else's server. No thanks."*
+- **Ads, subscriptions, "premium".** The category's users have learned to distrust them, and
+  the community's real objection is not the ads but the **abandonment**: an app you paid for
+  that stops working when the developer moves on.
+- **Blocking other apps' ads.** Not possible, and not our claim to make. The honest claim is
+  the one that can be checked: no ads inside OpenTV, no account, no server.
 
 ---
 
@@ -358,8 +440,13 @@ IPTV Smarters clones.
 `yuliskov/SmartTube`, `damontecres/Wholphin`, `Fredolx/open-tv`, `4gray/iptvnator`,
 `NuvioMedia/NuvioTV`, `Dispatcharr/Dispatcharr`.
 
-**Community** — r/IPTV, r/AndroidTV, r/FireTV, r/TiviMate, r/SparklePlayer, r/NewPipe,
-TROYPOINT (TiviMate wishlist and issue threads), TIVIFY, IPTVTalk.
+**Community** — r/IPTV (banned; r/IPTV_Help_Desk is mostly developers advertising their own
+players, and is marked as such), r/AndroidTV, r/FireTV, r/TiviMate, r/SparklePlayer, r/NewPipe,
+TROYPOINT (TiviMate wishlist and issue threads, and the A/B comparisons against Sparkle TV),
+TIVIFY, IPTVTalk. Reddit's vote API was blocked, so the strength of a claim is judged by thread
+and comment counts, and r/IPTV, r/FireTV, r/PerfectPlayer and r/DreamPlayer returned no
+readable entries — the community evidence is therefore **thinner on "IPTV apps in general" than
+on TiviMate specifically**, and it is marked that way throughout.
 
 **Platform** — [Android TV navigation](https://developer.android.com/training/tv/get-started/navigation),
 [ambient mode](https://developer.android.com/training/tv/playback/ambient-mode),
