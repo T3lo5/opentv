@@ -280,8 +280,8 @@ class XtreamApi(
      */
     suspend fun openEpgStream(
         source: Source,
-        prevDays: Int = 1,
-        nextDays: Int = 1,
+        prevDays: Int? = null,
+        nextDays: Int? = null,
     ): InputStream = withContext(Dispatchers.IO) {
         val url = source.epgUrl?.toHttpUrlOrNull() ?: xmltvUrl(source, prevDays, nextDays)
         val response = http.newCall(request(source, url)).execute()
@@ -342,13 +342,18 @@ class XtreamApi(
         }
     }
 
-    private fun xmltvUrl(source: Source, prevDays: Int, nextDays: Int): HttpUrl =
+    private fun xmltvUrl(source: Source, prevDays: Int?, nextDays: Int?): HttpUrl =
         baseUrl(source).newBuilder()
             .encodedPath("/xmltv.php")
             .addQueryParameter("username", source.username.orEmpty())
             .addQueryParameter("password", source.password.orEmpty())
-            .addQueryParameter("prev_days", prevDays.coerceAtLeast(0).toString())
-            .addQueryParameter("next_days", nextDays.coerceAtLeast(0).toString())
+            .apply {
+                // Asked for explicitly, because a panel only answers for the window it
+                // generated — and for another one it answers with an empty body and no
+                // error. Null leaves the panel's own default alone.
+                if (prevDays != null) addQueryParameter("prev_days", prevDays.coerceAtLeast(0).toString())
+                if (nextDays != null) addQueryParameter("next_days", nextDays.coerceAtLeast(0).toString())
+            }
             .build()
 
     private fun baseUrl(source: Source): HttpUrl =
