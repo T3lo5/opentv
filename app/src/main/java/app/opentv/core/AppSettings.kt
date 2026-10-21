@@ -35,6 +35,29 @@ class AppSettings private constructor(context: Context) {
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     /**
+     * Which surface the app is being used on: the television, or the phone/tablet.
+     *
+     * The device usually can tell — a leanback feature, a television UI mode — but not
+     * always: a Google TV stick that reports a phone profile, a phone driving a big screen
+     * over HDMI, a tablet in a dock. Guessing wrong is expensive, because the two surfaces
+     * want different things: a television is driven by a d-pad, wants a category folder to
+     * open as a plain list and wants a way to blank the picture with the programme still
+     * playing; a phone is driven by a finger and wants neither.
+     *
+     * So the app asks, once, and remembers the answer. Until it is answered, the device's
+     * own opinion stands.
+     */
+    enum class AppMode { TV, PHONE }
+
+    private val _appMode = MutableStateFlow(readAppMode(context))
+    val appMode: StateFlow<AppMode> = _appMode.asStateFlow()
+
+    fun setAppMode(mode: AppMode) {
+        prefs.edit().putString(KEY_APP_MODE, mode.name).apply()
+        _appMode.value = mode
+    }
+
+    /**
      * How the live-TV channel list is laid out: the scrolling EPG time-[ChannelLayout.GRID], or a
      * compact one-channel-per-row [ChannelLayout.LIST] (logo, name, now/next) for people who find
      * the full grid busy. Defaults to the grid.
@@ -176,6 +199,19 @@ class AppSettings private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_RESUME_LAST, enabled).apply()
         _resumeLastChannel.value = enabled
     }
+
+    /**
+     * A one-shot bookmark: "open on the channel I was on next time".
+     *
+     * Set by the player's **Turn off** button, whose whole meaning is "I am leaving, and this
+     * is where I was" — the gesture of a television set being switched off and found again
+     * later on the same channel. It is deliberately not the standing "resume last channel"
+     * preference: that one is a decision about how the app always opens, and this is a
+     * decision about this one evening. It is consumed by the next launch.
+     */
+    var resumeOnNextLaunch: Boolean
+        get() = prefs.getBoolean(KEY_RESUME_NEXT, false)
+        set(value) { prefs.edit().putBoolean(KEY_RESUME_NEXT, value).apply() }
 
     // ---- Recording behaviour -----------------------------------------------------------------
 
@@ -324,6 +360,16 @@ class AppSettings private constructor(context: Context) {
     private fun readThemeMode(): ThemeMode =
         runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: "") }
             .getOrDefault(ThemeMode.SYSTEM)
+
+    /**
+     * The saved mode, or the device's own opinion while the user has not chosen one.
+     *
+     * A stored value that is not a mode we know (an older build, a hand-edited prefs file)
+     * falls back to detection rather than throwing the app into an unknown state.
+     */
+    private fun readAppMode(context: Context): AppMode =
+        runCatching { AppMode.valueOf(prefs.getString(KEY_APP_MODE, null) ?: "") }
+            .getOrElse { if (context.isTelevisionDevice()) AppMode.TV else AppMode.PHONE }
 
     private fun readChannelLayout(): ChannelLayout =
         runCatching { ChannelLayout.valueOf(prefs.getString(KEY_CHANNEL_LAYOUT, null) ?: "") }
@@ -482,6 +528,7 @@ class AppSettings private constructor(context: Context) {
 
     companion object {
         private const val KEY_THEME = "theme_mode"
+        private const val KEY_APP_MODE = "app_mode"
         private const val KEY_CHANNEL_LAYOUT = "channel_layout"
         private const val KEY_SUBTITLES = "subtitles_enabled"
         private const val KEY_BUFFER_PRESET = "buffer_preset"
@@ -493,6 +540,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_HIDDEN_CATS = "hidden_categories"
         private const val KEY_ACTIVE_PROFILE = "active_profile_id"
         private const val KEY_RESUME_LAST = "resume_last_channel"
+        private const val KEY_RESUME_NEXT = "resume_on_next_launch"
         private const val KEY_CONTENT_LIVE = "content_live"
         private const val KEY_CONTENT_MOVIES = "content_movies"
         private const val KEY_CONTENT_SERIES = "content_series"

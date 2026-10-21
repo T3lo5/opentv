@@ -172,6 +172,10 @@
     <string name="settings_about_subtitle">Version, updates, licence and links</string>
 
     <!-- ============================ Display & playback settings ============================ -->
+    <string name="settings_section_mode">Interface mode</string>
+    <string name="settings_mode_tv">TV — remote control</string>
+    <string name="settings_mode_phone">Phone / tablet — touch</string>
+    <string name="settings_mode_note">TV mode is built for a remote: categories open as a plain list, the player can blank the picture while the channel keeps playing, and everything is reachable with the arrow keys. You can change this at any time.</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme_system">Follow system</string>
     <string name="settings_theme_dark">Dark</string>
@@ -378,6 +382,8 @@
     <string name="onboarding_default_playlist_name">My playlist</string>
     <string name="onboarding_add_provider_title">Add your provider</string>
     <string name="onboarding_add_provider_desc">OpenTV is a player. It doesn\'t supply channels — you connect the service you already pay for.</string>
+    <string name="onboarding_mode_title">How will you use OpenTV?</string>
+    <string name="onboarding_mode_note">A television is driven by a remote, a phone by a finger. Pick the one that fits, and you can change it later in Settings.</string>
     <string name="onboarding_xtream_login">Xtream Codes login</string>
     <string name="onboarding_m3u_url">M3U playlist URL</string>
     <string name="onboarding_stalker_portal">Stalker portal</string>

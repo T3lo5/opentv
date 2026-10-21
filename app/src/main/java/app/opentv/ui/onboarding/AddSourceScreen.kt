@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,9 +46,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.opentv.R
+import app.opentv.core.AppSettings
 import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
-import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
 import app.opentv.ui.channels.readClipboardText
 
@@ -74,10 +75,25 @@ fun AddSourceScreen(
     // scanned BY a phone, which is nonsensical and traps the user — so a non-TV device defaults
     // straight to the direct entry form. On a TV the QR is still offered first, because typing a
     // server address and password with a d-pad is the worst moment in every app of this kind.
-    val isTelevision = remember(context) { isRunningOnTelevision(context) }
+    //
+    // "A TV" is the mode the user picked, not the device's guess: the mode is asked on this
+    // screen, and the pairing screen follows the answer rather than the hardware.
+    val settings = remember { AppSettings.get(context) }
+    val appMode by settings.appMode.collectAsState()
+    val isTelevision = appMode == AppSettings.AppMode.TV
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
     var usePhone by remember { mutableStateOf(isTelevision && editingSourceId == null) }
+    // Changing the mode here moves the screen with it: picking "phone" leaves the pairing
+    // screen for the direct form, picking "TV" goes back to the QR. Only on a change — the
+    // "type it here" button must not bounce the viewer back into the pairing screen.
+    var modeAtEntry by remember { mutableStateOf(appMode) }
+    LaunchedEffect(appMode) {
+        if (appMode != modeAtEntry) {
+            modeAtEntry = appMode
+            usePhone = appMode == AppSettings.AppMode.TV && editingSourceId == null
+        }
+    }
 
     if (usePhone) {
         PhonePairingScreen(
@@ -155,6 +171,17 @@ fun AddSourceScreen(
             )
 
             Spacer(Modifier.height(24.dp))
+
+            // The mode, asked once and up front — it decides how the whole app behaves, so it
+            // is worth asking before anything is typed. Skipped when editing a provider: by
+            // then the mode is already known.
+            if (editingSourceId == null) {
+                ModeSelector(
+                    mode = appMode,
+                    onSelect = { settings.setAppMode(it) },
+                )
+                Spacer(Modifier.height(20.dp))
+            }
 
             // The three provider names are long, and a phone in portrait has not the width
             // for all three: the last one used to be squeezed into a column of letters.

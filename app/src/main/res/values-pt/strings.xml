@@ -110,6 +110,7 @@
     <string name="player_aspect">Proporção</string>
     <string name="player_record">Gravar</string>
     <string name="player_pop_out">Destacar</string>
+    <string name="player_turn_off">Desligar</string>
     <string name="player_last">Anterior</string>
     <string name="player_quality_standard">Padrão</string>
     <string name="player_aspect_fit">Ajustar</string>

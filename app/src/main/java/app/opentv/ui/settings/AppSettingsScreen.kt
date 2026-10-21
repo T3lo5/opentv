@@ -62,6 +62,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val themeMode by settings.themeMode.collectAsState()
+    val appMode by settings.appMode.collectAsState()
     val channelLayout by settings.channelLayout.collectAsState()
     val previewVideo by settings.guidePreviewVideo.collectAsState()
     val previewSound by settings.guidePreviewSound.collectAsState()
@@ -96,6 +97,27 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(20.dp))
+
+        // The mode comes first: it decides how everything else is drawn, so it is the one
+        // setting worth finding before the rest.
+        SettingsSection(stringResource(R.string.settings_section_mode)) {
+            ThemeOption(
+                stringResource(R.string.settings_mode_tv),
+                appMode == AppSettings.AppMode.TV,
+            ) { settings.setAppMode(AppSettings.AppMode.TV) }
+            ThemeOption(
+                stringResource(R.string.settings_mode_phone),
+                appMode == AppSettings.AppMode.PHONE,
+            ) { settings.setAppMode(AppSettings.AppMode.PHONE) }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.settings_mode_note),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_appearance)) {
             ThemeOption(stringResource(R.string.settings_theme_system), themeMode == AppSettings.ThemeMode.SYSTEM) {
