@@ -84,7 +84,17 @@ import java.util.Locale
  * One requester per row, owned here: a requester is bound to the node it is attached to, so
  * handing the same one to a different row (as happens when a lazy list recycles its first
  * item) would break it.
+ *
+ * Stable, and deliberately so. The rows' focus callbacks capture this object, and a lambda
+ * that captures an unstable value is a *new* lambda on every recomposition — which is a
+ * changed parameter, which is a row that has to be redone. With this marked stable the
+ * compiler can remember those callbacks, the rows' parameters stay equal, and moving the
+ * d-pad redraws the two rows that changed instead of every programme block on screen.
+ *
+ * Nothing here is Compose state: it is a controller the guide owns, and the requesters it
+ * hands out are bound to the rows they belong to.
  */
+@androidx.compose.runtime.Stable
 class VerticalListFocus {
     private var keys: List<Any> = emptyList()
     private val requesters = mutableMapOf<Any, FocusRequester>()
@@ -160,6 +170,17 @@ class VerticalListFocus {
 fun GuideGrid(
     rows: List<ChannelsViewModel.Row>,
     windowStartMillis: Long,
+    /**
+     * "Now", from the screen's clock.
+     *
+     * Passed in rather than read here on purpose. A fresh `System.currentTimeMillis()` on
+     * every recomposition changes the value on every arrow press, and a changed parameter
+     * is a changed parameter: Compose has to redo every visible row and every programme
+     * block in it, which is the difference between the guide following the d-pad and the
+     * guide stuttering under it. The host's clock ticks once a minute, which is the
+     * resolution a progress bar needs anyway.
+     */
+    nowMillis: Long,
     selectedKey: Any?,
     onSelectRow: (ChannelsViewModel.Row) -> Unit,
     onFocusRow: (ChannelsViewModel.Row) -> Unit,
@@ -174,7 +195,6 @@ fun GuideGrid(
     modifier: Modifier = Modifier,
 ) {
     val scroll = rememberScrollState()
-    val now = System.currentTimeMillis()
     // Jumping to another day resets the horizontal scroll to that day's start; a within-day time
     // drift (dayOffset unchanged) leaves the user's scroll position untouched.
     androidx.compose.runtime.LaunchedEffect(dayOffset) { scroll.scrollTo(0) }
@@ -196,7 +216,7 @@ fun GuideGrid(
                 GuideRow(
                     row = row,
                     windowStartMillis = windowStartMillis,
-                    nowMillis = now,
+                    nowMillis = nowMillis,
                     scroll = scroll,
                     isSelected = row.key == selectedKey,
                     onSelect = { onSelectRow(row) },
@@ -221,6 +241,8 @@ fun GuideGrid(
 @Composable
 fun ChannelList(
     rows: List<ChannelsViewModel.Row>,
+    /** "Now", from the screen's clock — see [GuideGrid]. */
+    nowMillis: Long,
     selectedKey: Any?,
     onSelectRow: (ChannelsViewModel.Row) -> Unit,
     onFocusRow: (ChannelsViewModel.Row) -> Unit,
@@ -229,7 +251,6 @@ fun ChannelList(
     vertical: VerticalListFocus,
     modifier: Modifier = Modifier,
 ) {
-    val now = System.currentTimeMillis()
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -240,7 +261,7 @@ fun ChannelList(
         itemsIndexed(rows, key = { _, row -> row.key }) { index, row ->
             ChannelListRow(
                 row = row,
-                nowMillis = now,
+                nowMillis = nowMillis,
                 isSelected = row.key == selectedKey,
                 onSelect = { onSelectRow(row) },
                 onFocus = { vertical.onRowFocused(row.key); onFocusRow(row) },

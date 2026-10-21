@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.3
+
+- **The guide keeps up with the remote.** Moving down the channel list used to redraw every
+  programme block on screen, because the guide read the clock afresh on every pass — so every
+  arrow press changed a value every row depended on, and every row had to be redone. The clock
+  now comes from the screen's, the rows' callbacks are remembered, and the preview's video
+  surface is left alone when the player has not changed.
+  On a stick, ten presses down the guide redrew **77 rows before, 30 after**; the time to draw
+  a frame halved, and a key press is now answered within a frame instead of two.
+
 ## 0.12.2
 
 - **The channels you have are the channels you see.** A tvg-id is the guide's name for a

@@ -1091,9 +1091,22 @@ fun PlayerScreen(
                     .focusRequester(guideFocus)
                     .focusable(),
             ) {
+                // "Now" for the guide's progress bars, read once a minute rather than on
+                // every recomposition: a clock that changes with every frame would force
+                // every programme block on screen to be redrawn when the d-pad moves.
+                var guideNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        delay(60_000)
+                        guideNow = System.currentTimeMillis()
+                    }
+                }
                 GuideGrid(
                     rows = guideRows,
                     windowStartMillis = guideWindowStart,
+                    // The same clock the guide draws "now" from, so the progress bars agree
+                    // with the programme list. Read once per composition rather than per row.
+                    nowMillis = guideNow,
                     selectedKey = currentId?.let { id -> guideRows.firstOrNull { it.primary.id == id }?.key },
                     // OK on a channel is "watch this one", not "open its menu": the viewer is
                     // already watching something and the guide is a way to change that.

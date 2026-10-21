@@ -122,7 +122,15 @@ cheapest possible justification.
 2. **The guide, fast to move with the remote (issue #2).** Two users, on two different cheap
    sticks (Xiaomi TV Stick 2nd gen, Shield TV), say the same thing: moving around the EPG with
    the d-pad is laggy. It is the most-reported thing our users say, and the fastest guide
-   navigation is the complaint every app in the category has.
+   navigation is the complaint every app in the category has. **Improved in 0.12.3** — the guide
+   read the clock afresh on every pass, so every arrow press invalidated every visible row; the
+   clock now comes from the screen's, and the rows' callbacks are remembered. Measured on a
+   stick: ten presses down the guide redrew **77 rows before, 30 after**, the draw halved, and
+   the input latency fell from 21 ms to 14 ms — one frame instead of two. **What is left:** the
+   preview still re-tunes the stream 700 ms after the highlight settles and the codec takes
+   about a second to come up, which is the tail the user feels as a freeze; and the p90 frame is
+   still ~75 ms, which the measurements point at the vertical scroll rather than at the
+   composition.
 3. **A settings file you can export and import.** The LAN sync moves the *state* (positions,
    favourites, hidden channels, recordings); it does not move the *configuration* — the sources,
    the preferences, the recording target. That is what issue #10 asks for, and it is the

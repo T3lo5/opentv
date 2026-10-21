@@ -319,6 +319,9 @@ fun HomeScreen(
     // While a recording is running the preview is silenced entirely: on a single-connection line a
     // muted preview is still a second stream, which fights the recording and risks a provider ban.
     val recordingActive = activeRecordings.isNotEmpty()
+    // The provider's user agent, for the request headers. Kept per source: a lookup for
+    // every channel the highlight passes over is a database query for every arrow press.
+    val sourceUserAgents = remember { HashMap<Long, String>() }
     LaunchedEffect(highlightedRow?.key, previewEnabled, screenResumed, recordingActive) {
         val row = highlightedRow
         if (!previewEnabled || !screenResumed || recordingActive || row == null) {
@@ -326,12 +329,15 @@ fun HomeScreen(
             return@LaunchedEffect
         }
         val channel = row.primary
-        val source = graph.sourceRepository.byId(channel.sourceId)
+        val userAgent = sourceUserAgents[channel.sourceId]
+            ?: graph.sourceRepository.byId(channel.sourceId)?.userAgent
+                ?.also { sourceUserAgents[channel.sourceId] = it }
+            ?: "OpenTV/0.1 (Android)"
         previewController.play(
             PlayerController.Request(
                 url = channel.streamUrl,
                 title = channel.shownName,
-                userAgent = source?.userAgent ?: "OpenTV/0.1 (Android)",
+                userAgent = userAgent,
                 isLive = true,
             ),
             debounce = true,
@@ -521,6 +527,7 @@ fun HomeScreen(
                 if (listLayout) {
                     ChannelList(
                         rows = rows,
+                        nowMillis = nowMillis,
                         selectedKey = highlightedRow?.key,
                         onSelectRow = { row -> channelMenu = row },
                         onFocusRow = onFocusChannel,
@@ -533,6 +540,7 @@ fun HomeScreen(
                     GuideGrid(
                         rows = rows,
                         windowStartMillis = windowStart,
+                        nowMillis = nowMillis,
                         dayOffset = guideDayOffset,
                         selectedKey = highlightedRow?.key,
                         // OK on a channel opens its menu: Watch, Record now, Schedule a later show,
