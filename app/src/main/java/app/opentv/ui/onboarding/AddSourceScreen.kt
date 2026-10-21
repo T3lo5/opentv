@@ -6,6 +6,7 @@
 package app.opentv.ui.onboarding
 
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -155,7 +156,13 @@ fun AddSourceScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The three provider names are long, and a phone in portrait has not the width
+            // for all three: the last one used to be squeezed into a column of letters.
+            // Scrolling the row sideways is the same answer the player's transport row got.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
                 FilterChip(
                     selected = kind == SourceKind.XTREAM,
                     onClick = { kind = SourceKind.XTREAM },
