@@ -258,7 +258,7 @@ The most valuable evidence in the whole sweep is our own issue tracker — 11 is
 | # | Issue | What it says |
 |---|---|---|
 | **#2** | *"very slow"* — 4 comments | The guide grid is laggy to move with the remote, reported independently on a **Xiaomi TV Stick 2nd gen** and a **Shield TV**. The most-reported thing our users say. PRs #5, #15 and #17 all chase it. |
-| **#11** | *Fewer channels when multiple M3U entries share the same `tvg-id`* | A real data bug, and it is ours: the parser drops every entry after the first with a given `tvg-id`, so a playlist that loads fine in TiviMate or Lumora shows fewer channels here — **and quality variants are lost the same way**, because the variant ladder is grouped by name, not by `tvg-id`. |
+| **#11** | *Fewer channels when multiple M3U entries share the same `tvg-id`* | A real data bug, and it is ours: the parser dropped every entry after the first with a given `tvg-id`, so a playlist that loads fine in TiviMate or Lumora showed fewer channels here — **and quality variants were lost the same way**, because the variant ladder is grouped by name, not by `tvg-id`. **Fixed in 0.12.2** — the identity of a stream is now the channel, the quality and the category. |
 | **#10** | *Sync settings across local network* | Asked for specifically: "sync providers, playlist, recording folder… or save a settings config on the network that other devices could open manually". We shipped the LAN sync; the **source definitions and a settings file** are the missing part. |
 | **#12** | *Interest in phone UI improvements?* | A contributor built a phone-focused fork with a `LayoutClass (TV / PHONE / TABLET)` `CompositionLocal`, a touch shell, portrait browsing and category filters, and asked whether it would be taken upstream. **We just shipped a TV/PHONE mode of our own** — the designs overlap but differ, and this is a live contribution to reconcile. |
 | **#18** | *Add a provider from a local file* | Motivated by a real constraint: an old Huawei tablet that cannot reach modern TLS hosts, so a playlist on the device is the only way. |
@@ -281,10 +281,11 @@ are the cheapest to justify.
 
 ### Now — small, evidence-backed, and ours
 
-1. **Stop dropping channels with a shared `tvg-id` (issue #11).** Dedup on the *logical
-   channel* (name/group), not on the `tvg-id` alone, and keep the variant ladder intact. One
-   parser change; recovers channels for real users and restores quality variants for M3U
-   providers that reuse a `tvg-id`.
+1. ~~**Stop dropping channels that share a `tvg-id` (issue #11).**~~ **Done in 0.12.2.** The
+   identity of a stream is now the channel, the quality and the category; a true duplicate is
+   still one channel, and the first entry with a given id keeps its plain stream id so the
+   favourites and renames a user already has survive. Verified on the stick: a playlist with
+   two quality variants and two channels under one id went from **2 channels to 5**.
 2. **Make the guide fast to move with the remote (issue #2).** The two users are on different
    cheap sticks, so this is silicon, not code — but "laggy when the d-pad moves" is also what
    a Compose recomposition on every arrow press looks like. Profile the scroll path before

@@ -71,9 +71,10 @@ class M3uParserTest {
     }
 
     @Test
-    fun `duplicate tvg-ids do not collide`() {
+    fun `quality variants under one tvg-id are both kept`() {
         // Providers routinely list SD and HD variants under one tvg-id. The unique index on
-        // (sourceId, streamId) would otherwise abort the entire import.
+        // (sourceId, streamId) would otherwise abort the entire import — and dropping the
+        // second one left the quality switch with nothing to switch between.
         val playlist = """
             #EXTM3U
             #EXTINF:-1 tvg-id="dup",Channel SD
@@ -84,8 +85,97 @@ class M3uParserTest {
 
         val result = M3uParser.parse(playlist, sourceId = 1)
 
+        assertThat(result.channels).hasSize(2)
+        assertThat(result.channels.map { it.name }).containsExactly("Channel SD", "Channel HD").inOrder()
+        // Distinct ids, or the import dies on the unique index.
+        assertThat(result.channels[0].streamId).isNotEqualTo(result.channels[1].streamId)
+    }
+
+    @Test
+    fun `two different channels sharing a tvg-id are both kept`() {
+        // The bug in issue #11: a playlist where the provider reuses one id across
+        // unrelated channels came out with fewer channels than every other player showed.
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="sport" group-title="Sports",Sport One
+            http://example.com/one.m3u8
+            #EXTINF:-1 tvg-id="sport" group-title="Sports",Sport Two
+            http://example.com/two.m3u8
+        """.trimIndent()
+
+        val result = M3uParser.parse(playlist, sourceId = 1)
+
+        assertThat(result.channels).hasSize(2)
+        assertThat(result.channels.map { it.name }).containsExactly("Sport One", "Sport Two").inOrder()
+    }
+
+    @Test
+    fun `the same channel listed twice is still one channel`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="dup" group-title="UK",BBC One
+            http://example.com/one.m3u8
+            #EXTINF:-1 tvg-id="dup" group-title="UK",BBC One
+            http://example.com/two.m3u8
+        """.trimIndent()
+
+        val result = M3uParser.parse(playlist, sourceId = 1)
+
         assertThat(result.channels).hasSize(1)
-        assertThat(result.channels.single().name).isEqualTo("Channel SD")
+        assertThat(result.channels.single().name).isEqualTo("BBC One")
+    }
+
+    @Test
+    fun `the same channel in two categories is two entries`() {
+        // The same channel listed under two categories is one channel the user sees twice,
+        // not one entry — the categories are how the list is browsed.
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="bbc1" group-title="UK",BBC One
+            http://example.com/uk.m3u8
+            #EXTINF:-1 tvg-id="bbc1" group-title="UK VIP",BBC One
+            http://example.com/vip.m3u8
+        """.trimIndent()
+
+        val result = M3uParser.parse(playlist, sourceId = 1)
+
+        assertThat(result.channels).hasSize(2)
+        assertThat(result.channels.map { it.categoryId }).containsExactly("UK", "UK VIP").inOrder()
+    }
+
+    @Test
+    fun `the first entry with a tvg-id keeps the plain id`() {
+        // Favourites, renames and guide matches are carried across a refresh by the stream
+        // id. A user who has already marked a channel as a favourite must not lose it to
+        // this change.
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="bbc1.uk",BBC One
+            http://example.com/one.m3u8
+            #EXTINF:-1 tvg-id="bbc1.uk",BBC One HD
+            http://example.com/hd.m3u8
+        """.trimIndent()
+
+        val result = M3uParser.parse(playlist, sourceId = 1)
+
+        assertThat(result.channels[0].streamId).isEqualTo("tvg:bbc1.uk")
+    }
+
+    @Test
+    fun `stream ids are stable across parses`() {
+        // An unstable id means favourites are lost on every refresh.
+        val playlist = """
+            #EXTM3U
+            #EXTINF:-1 tvg-id="bbc1.uk",BBC One
+            http://example.com/one.m3u8
+            #EXTINF:-1 tvg-id="bbc1.uk",BBC One HD
+            http://example.com/hd.m3u8
+        """.trimIndent()
+
+        val first = M3uParser.parse(playlist, sourceId = 1).channels
+        val second = M3uParser.parse(playlist, sourceId = 1).channels
+
+        assertThat(first.map { it.streamId }).isEqualTo(second.map { it.streamId })
     }
 
     @Test

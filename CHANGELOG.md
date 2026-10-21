@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.2
+
+- **The channels you have are the channels you see.** A tvg-id is the guide's name for a
+  channel, not a stream, and providers reuse one id for every quality of a channel — and
+  sometimes for two channels that have nothing to do with each other. The playlist reader
+  treated the id as the stream, so everything after the first entry was quietly dropped: a
+  playlist that loaded fine in other players came out with **fewer channels here**, and the
+  quality switch had nothing to switch between. The identity of a stream is now the channel,
+  the quality and the category, and a true duplicate is still one channel.
+
 ## 0.12.1
 
 - **A television is a television.** The app used to guess what it was running on and be wrong

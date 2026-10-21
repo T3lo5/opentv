@@ -112,10 +112,13 @@ Re-ordered after the October 2026 sweep of what users actually complain about �
 in `docs/USER_COMPLAINTS.md`. The two at the top are our own users' open issues, which is the
 cheapest possible justification.
 
-1. **Stop dropping channels that share a `tvg-id` (issue #11).** The M3U parser keeps the first
-   entry per `tvg-id` and drops the rest, so a playlist that loads fine in TiviMate or Lumora
-   shows fewer channels here — and the quality-variant ladder is lost the same way, because
-   variants are grouped by name. Dedup on the logical channel, not on the `tvg-id` alone.
+1. ~~**Stop dropping channels that share a `tvg-id` (issue #11).**~~ **Done in 0.12.2.** The
+   M3U parser kept the first entry per `tvg-id` and dropped the rest, so a playlist that
+   loads fine in TiviMate or Lumora showed fewer channels here — and the quality-variant
+   ladder was lost the same way, because variants are grouped by name. A stream's identity is
+   now the channel, the quality and the category; a true duplicate is still one channel, and
+   the first entry with a given id keeps its plain stream id so favourites and renames
+   survive. Verified on the stick: 2 channels → 5.
 2. **The guide, fast to move with the remote (issue #2).** Two users, on two different cheap
    sticks (Xiaomi TV Stick 2nd gen, Shield TV), say the same thing: moving around the EPG with
    the d-pad is laggy. It is the most-reported thing our users say, and the fastest guide
