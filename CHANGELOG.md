@@ -33,6 +33,10 @@
 - **Playback knobs.** A buffer size for the box that is short of memory or on a bad line, and
   an escape hatch for the boxes whose hardware decoder stutters or shows a green picture: prefer
   the software decoder instead.
+- **A guide that was never there.** A panel serves the guide it generated for one window, and
+  answers an empty file — with no error — for any other. The app was asking for a window some
+  panels do not have, so their guide was simply absent. The windows are tried in turn now, and
+  the first one with a guide in it wins.
 - **A few things that were quietly wrong.** The built-in US and Canadian EPG guides pointed at
   files their host had renamed, and answered 404; the settings button fell off the bottom of the
   side rail on a phone in landscape; the provider chips on the first-run screen did the same.
