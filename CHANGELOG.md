@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.12.1
+
+- **A television is a television.** The app used to guess what it was running on and be wrong
+  about it. Now it asks: **TV** or **Phone / tablet**, on the first-run screen and in
+  Settings → Display & playback, and the answer is remembered. TV mode browses categories as
+  a plain list instead of a timeline, keeps the picture from being held awake so the set can
+  be switched off, and drives the whole interface from the d-pad. The phone layout is
+  untouched.
+- **Turn the television off without stopping the channel.** On a television the app no longer
+  holds the picture awake, so the set's own screensaver takes over — and with it, the channel
+  stops, the way a television does when it goes dark. A set that keeps talking to an empty room
+  is not a set. The viewer who comes back finds the channel still on it.
+- **And a button to turn the set off for good.** The player has a **Turn off** button now:
+  the stream stops, the app closes, and the box is left idle. It leaves a bookmark behind, so
+  opening the app again finds the channel you were on — the way a set-top box does, rather than
+  dropping the viewer on the guide.
+- **The remote can reach the buttons.** A clickable row is not a focus target, so on a
+  television the arrow keys walked straight past the transport bar, the category rail, the
+  channel column in the guide and every row of every menu — the only thing OK could press was
+  whatever happened to hold the focus, which was play/pause. All of them take the focus now,
+  the bar starts on the guide rather than on pause, and up/down stops changing the channel
+  while the arrows are walking the bar.
+- **And OK actually presses them.** `focusable()` before `clickable()` hides the clickable's
+  own key handling from Compose, so pressing OK on a button did nothing at all. The order is
+  now the other way round, everywhere — including the channel list in the player, the pickers
+  (quality, subtitles, audio, aspect) and the steppers in the recording settings.
+- **The buttons that arrive late are buttons too.** The chips that only exist once the guide
+  has caught up — rewind, forward, quality — were the ones the arrows walked straight past,
+  because the border around a focused button used to be *added* to the button rather than
+  drawn on it, and a button whose chain changes under it loses the focus. The border is
+  drawn now, and the whole bar — the live player's and the film's — is walkable from end to
+  end, right up to the power button.
+- **The guide takes the remote.** The up and down arrows walked the preview pane above the
+  guide and stopped dead at the guide's first row — the row that had the focus was also lost
+  every time the line-up was rebuilt by a sync. The arrows now move between channels (in the
+  grid, in a folder's list, and in the player's channel list), the preview follows, and the
+  focus is put back where it was after a rebuild.
+- **The catch-up list stopped covering the guide.** In the player, the "earlier programmes"
+  panel was drawn over the whole guide and took the d-pad with it, so opening the guide
+  showed the list instead of the guide. They are separate overlays now, one or the other.
+- **The channel list is the whole provider.** "Canais" in the player showed the folder you
+  happened to be browsing — a dead end the moment you wanted to change channel. It is every
+  channel of the provider now, and the arrows walk it.
+
 ## 0.12.0
 
 - **Catch-up for M3U playlists.** Xtream providers have been able to keep an archive for years;
