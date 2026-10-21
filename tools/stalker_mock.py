@@ -56,12 +56,42 @@ GENRES = [
 # exactly like a real portal hands out a just-in-time link.
 CHANNELS = [
     {"id": "1", "name": "Big Buck Bunny (test)",  "number": "1", "tv_genre_id": "1",
-     "cmd": "ffmpeg http://localhost/ch/1", "logo": "", "xmltv_id": ""},
+     "cmd": "ffmpeg http://localhost/ch/1", "logo": "", "xmltv_id": "",
+     # A portal that keeps an archive says so per channel: `archive` is 1 when the
+     # channel is recorded, and `tv_archive_duration` says how many days it keeps.
+     "archive": 1, "tv_archive_duration": 3},
     {"id": "2", "name": "Apple BipBop (test)",    "number": "2", "tv_genre_id": "1",
-     "cmd": "ffmpeg http://localhost/ch/2", "logo": "", "xmltv_id": ""},
+     "cmd": "ffmpeg http://localhost/ch/2", "logo": "", "xmltv_id": "",
+     "archive": 1, "tv_archive_duration": 3},
     {"id": "3", "name": "Sintel (test movie)",    "number": "3", "tv_genre_id": "2",
-     "cmd": "ffmpeg http://localhost/ch/3", "logo": "", "xmltv_id": ""},
+     "cmd": "ffmpeg http://localhost/ch/3", "logo": "", "xmltv_id": "",
+     "archive": 0, "tv_archive_duration": 0},
 ]
+
+# The archive's guide: what a portal recorded over the last few days, per channel.
+#
+# A real portal answers `type=itv&action=get_epg_info&period=N` with a map of channel id
+# to the programmes it holds, each with the timestamps and the id the archive is filed
+# under. The id is what the archive's create_link wants: the cmd for a past programme is
+# "auto /media/<id>.mpg", where "auto" is the storage the portal hands out first.
+#
+# The ids here are made up but the shape is the middleware's: `id`, `name`, `descr`,
+# `start_timestamp`, `stop_timestamp` (unix seconds) and `category`.
+ARCHIVE_PROGRAMMES = {
+    "1": [
+        {"id": "900001", "name": "Big Buck Bunny (archive 1)",
+         "descr": "Recorded earlier", "category": "Entertainment",
+         "start_timestamp": 0, "stop_timestamp": 0},
+        {"id": "900002", "name": "Big Buck Bunny (archive 2)",
+         "descr": "Recorded earlier", "category": "Entertainment",
+         "start_timestamp": 0, "stop_timestamp": 0},
+    ],
+    "2": [
+        {"id": "900003", "name": "Apple BipBop (archive 1)",
+         "descr": "Recorded earlier", "category": "Entertainment",
+         "start_timestamp": 0, "stop_timestamp": 0},
+    ],
+}
 
 
 def js(payload):
@@ -88,6 +118,29 @@ def dispatch(qs):
     if type_ == "itv" and action in ("get_all_channels", "get_ordered_list"):
         return js({"data": CHANNELS, "total_items": len(CHANNELS),
                    "max_page_items": len(CHANNELS), "selected_item": 0})
+
+    if type_ == "itv" and action == "get_epg_info":
+        # The archive's guide: what the portal still holds, per channel.
+        period = int((qs.get("period", ["3"])[0] or 3))
+        return js({"data": ARCHIVE_PROGRAMMES})
+
+    if type_ == "tv_archive" and action == "create_link":
+        # The archive's link. The cmd names the recorded file ("auto /media/<id>.mpg");
+        # the storage hands back a URL that seeks with start= and duration=.
+        cmd = qs.get("cmd", [""])[0]
+        m = re.search(r"/media/(\d+)\.mpg", cmd)
+        programme_id = m.group(1) if m else "900001"
+        stream_id = "1"
+        for pid, programmes in ARCHIVE_PROGRAMMES.items():
+            for programme in programmes:
+                if programme["id"] == programme_id:
+                    stream_id = next(
+                        (cid for cid, items in ARCHIVE_PROGRAMMES.items()
+                         if any(p["id"] == programme_id for p in items)),
+                        "1",
+                    )
+        url = STREAMS.get(stream_id, STREAMS["1"])
+        return js({"id": programme_id, "cmd": "ffmpeg " + url + "&start=0&duration=3600"})
 
     if type_ == "itv" and action == "create_link":
         cmd = qs.get("cmd", [""])[0]
