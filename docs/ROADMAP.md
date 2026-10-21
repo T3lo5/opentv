@@ -5,6 +5,11 @@ actually compare us to (TiviMate, IPTV Smarters Pro, Sparkle/OTT Navigator, Tele
 weighted by real user demand from the TiviMate wishlist forum, IPTV subreddits, and player
 surveys. Sources are at the bottom.
 
+The October 2026 sweep of what users complain about — 18 apps' store reviews, 16 projects' issue
+trackers, the community forums, and the Android TV platform's own rules — is in
+`docs/USER_COMPLAINTS.md`. It re-ordered the list below, and it is where the evidence for each
+item lives.
+
 ## Where we already are
 
 Table stakes are done: Xtream Codes + M3U, a live EPG guide grid, EPG name-matching against
@@ -103,24 +108,39 @@ stream health / codec overlay.
 
 ## Recommended next five
 
-1. **Deeper catch-up.** Let the guide show the past (the grid starts at the current
-   half-hour) and keep a few days of guide rather than one, so "I missed the game
-   yesterday evening" is a thing the app can answer. The cost is database size and a
-   wider `prev_days` on the panel request. The catch-up list itself already works (the
-   channel menu's "Earlier — watch from start"); what is missing is reaching it from
-   the guide, and the guide keeping enough history to have something to show.
-2. **Buffering / decoder / stream settings.** Knobs for the streams that will not play:
-   buffer size, hardware vs software decode, and the User-Agent is already there.
-3. **Backup / restore of settings.** The watch-history sync is shipped; a settings file
-   that carries sources, favourites and preferences is the missing half.
-4. **The remaining risky paths** — see the end of `docs/ARCHITECTURE.md`. The Room
-   migrations are now covered end to end (`DatabaseMigrationTest`, from the oldest
-   shipped schema to the current one); what is left is `EpgRepository.sync` against a
-   mid-stream failure, `replaceCatalogue` preserving favourites across a refresh, and
-   `XtreamApi` against captured real panel responses.
-5. **The settings hub's stragglers.** The hub exists; the screens that still live
-   outside it are the ones a phone user cannot reach — the gear sits below the fold on
-   a 1080p screen in landscape, which is a bug in its own right.
+Re-ordered after the October 2026 sweep of what users actually complain about — the evidence is
+in `docs/USER_COMPLAINTS.md`. The two at the top are our own users' open issues, which is the
+cheapest possible justification.
+
+1. **Stop dropping channels that share a `tvg-id` (issue #11).** The M3U parser keeps the first
+   entry per `tvg-id` and drops the rest, so a playlist that loads fine in TiviMate or Lumora
+   shows fewer channels here — and the quality-variant ladder is lost the same way, because
+   variants are grouped by name. Dedup on the logical channel, not on the `tvg-id` alone.
+2. **The guide, fast to move with the remote (issue #2).** Two users, on two different cheap
+   sticks (Xiaomi TV Stick 2nd gen, Shield TV), say the same thing: moving around the EPG with
+   the d-pad is laggy. It is the most-reported thing our users say, and the fastest guide
+   navigation is the complaint every app in the category has.
+3. **A settings file you can export and import.** The LAN sync moves the *state* (positions,
+   favourites, hidden channels, recordings); it does not move the *configuration* — the sources,
+   the preferences, the recording target. That is what issue #10 asks for, and it is the
+   most-liked complaint on the category leader (206 people). A file, and a second device that can
+   open it.
+4. **The rendition the stick can actually hold, and audio that behaves.** We have the ladder
+   from the provider and nobody has ever asked the device: probe `MediaCodecInfo` for the exact
+   profile and frame-rate, check `isLowRamDevice()`, and remember the highest rendition that
+   holds — then fall *down* the ladder on failure rather than trying a different decoder, which
+   is what the platform evidence says to do. With it, audio normalisation/night mode and an
+   audio-sync offset with a useful range (the two most-liked audio complaints in the study).
+5. **The remaining risky paths** — see the end of `docs/ARCHITECTURE.md`. The Room migrations
+   are covered end to end (`DatabaseMigrationTest`, from the oldest shipped schema to the
+   current one); what is left is `EpgRepository.sync` against a mid-stream failure,
+   `replaceCatalogue` preserving favourites across a refresh, and `XtreamApi` against captured
+   real panel responses.
+
+Behind those, and bigger: **the system guide** (publish our channels and EPG into `TvProvider`
+through a `TvInputService`, so they appear in Google TV's Live tab beside Pluto and Tubi — the
+one integration with real distribution value left in 2026), and **casting** (Media3 `media3-cast`
+is the only first-party path, and Play's TV criteria ask for it).
 
 **Deferred on purpose:** full N-up multiview and *server-backed* cross-device sync are both
 Hard (concurrent decoders / a backend we deliberately don't run) and shouldn't jump the queue.
