@@ -8,6 +8,7 @@ package app.opentv
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import app.opentv.core.AppSettings
 import app.opentv.data.db.OpenTvDatabase
 import app.opentv.data.model.EpgFeed
 import app.opentv.data.remote.XtreamApi
@@ -52,6 +53,9 @@ class BuiltInFeedsTest {
             sourceDao = db.sources(),
             api = XtreamApi(OkHttpClient()),
             http = OkHttpClient(),
+            settings = AppSettings.get(
+                ApplicationProvider.getApplicationContext(),
+            ),
         )
     }
 

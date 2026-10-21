@@ -13,6 +13,7 @@ import app.opentv.data.db.ProgrammeDao
 import app.opentv.data.db.SourceDao
 import app.opentv.data.model.EpgChannelAlias
 import app.opentv.data.model.EpgFeed
+import app.opentv.core.AppSettings
 import app.opentv.data.model.Programme
 import app.opentv.data.model.Source
 import app.opentv.data.parser.ChannelNameNormalizer
@@ -63,7 +64,18 @@ class EpgRepository(
     private val sourceDao: SourceDao,
     private val api: XtreamApi,
     private val http: OkHttpClient,
+    private val settings: AppSettings,
 ) {
+
+    /**
+     * How much guide to keep, in milliseconds.
+     *
+     * The user's choice, because the cost of more is real: a bigger database on the box and
+     * a longer download on every sync. It is a ceiling — a provider only serves what its
+     * own archive holds.
+     */
+    private val retentionMillis: Long
+        get() = settings.guideHistory.value.days * DAY_MILLIS
 
     data class SyncSummary(
         val feedsSucceeded: Int,
@@ -100,7 +112,7 @@ class EpgRepository(
         nowUtcMillis: Long,
         limit: Int = 12,
     ): List<Programme> {
-        val since = nowUtcMillis - RETENTION_PAST_MILLIS
+        val since = nowUtcMillis - retentionMillis
         for (id in epgChannelIds) {
             val past = programmeDao.finished(id, nowUtcMillis, since, limit)
             if (past.isNotEmpty()) return past
@@ -204,7 +216,7 @@ class EpgRepository(
             }
 
             if (succeeded > 0) {
-                programmeDao.deleteEndedBefore(nowUtcMillis - RETENTION_PAST_MILLIS)
+                programmeDao.deleteEndedBefore(nowUtcMillis - retentionMillis)
             }
 
             val (matched, total) = runMatcher()
@@ -237,7 +249,7 @@ class EpgRepository(
                     onProgramme = { programme ->
                         // Skip anything that finished before the retention cut-off; no point
                         // writing rows we are about to prune.
-                        if (programme.endUtcMillis >= nowUtcMillis - RETENTION_PAST_MILLIS) {
+                        if (programme.endUtcMillis >= nowUtcMillis - retentionMillis) {
                             batch += programme
                             if (batch.size >= BATCH_SIZE) {
                                 programmeDao.upsertAll(batch)
@@ -282,7 +294,13 @@ class EpgRepository(
             feed.providerSourceId != null -> {
                 val source: Source = sourceDao.byId(feed.providerSourceId)
                     ?: throw IllegalStateException("Provider for this guide no longer exists.")
-                api.openEpgStream(source)
+                // The panel is asked for exactly as much guide as the app is going to keep:
+                // asking for more would only be thrown away by the next prune.
+                api.openEpgStream(
+                    source,
+                    prevDays = settings.guideHistory.value.days,
+                    nextDays = GUIDE_LOOKAHEAD_DAYS,
+                )
             }
             feed.url != null -> {
                 val response = http.newCall(Request.Builder().url(feed.url).build()).execute()
@@ -381,8 +399,10 @@ class EpgRepository(
         /** Writes per transaction. Large enough to be fast, small enough not to hold WAL open. */
         const val BATCH_SIZE = 500
 
-        /** Keep finished programmes for a day so "what was on" still works. */
-        val RETENTION_PAST_MILLIS: Long = TimeUnit.DAYS.toMillis(1)
+        private const val DAY_MILLIS = 86_400_000L
+
+        /** How far ahead the guide window reaches — a day and a bit of the next. */
+        private const val GUIDE_LOOKAHEAD_DAYS = 2
 
         /** Feeds publish rolling windows; refreshing more often than this is rude. */
         val REFRESH_INTERVAL_MILLIS: Long = TimeUnit.HOURS.toMillis(6)

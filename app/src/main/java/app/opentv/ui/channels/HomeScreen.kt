@@ -419,6 +419,7 @@ fun HomeScreen(
                     else -> remember(windowStart) {
                         SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(windowStart))
                     }
+                    -1 -> stringResource(R.string.guide_yesterday)
                 }
                 GuidePreview(
                     row = highlightedRow,
@@ -432,7 +433,7 @@ fun HomeScreen(
                     } == true,
                     onRecord = { recordSelected() },
                     dayLabel = dayLabel,
-                    canGoPrevDay = guideDayOffset > 0,
+                    canGoPrevDay = guideDayOffset > -1,
                     onPrevDay = { viewModel.nudgeGuideDay(-1) },
                     onNextDay = { viewModel.nudgeGuideDay(1) },
                 )

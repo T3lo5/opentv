@@ -67,6 +67,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val previewSound by settings.guidePreviewSound.collectAsState()
     val captions by settings.subtitlesEnabled.collectAsState()
     val decoder by settings.decoderPreference.collectAsState()
+    val guideHistory by settings.guideHistory.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
@@ -191,6 +192,28 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 subtitle = stringResource(R.string.settings_preview_sound_subtitle),
                 checked = previewSound,
                 onToggle = settings::setGuidePreviewSound,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.settings_guide_history_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            AppSettings.GuideHistory.entries.forEach { option ->
+                ThemeOption(
+                    stringResource(
+                        when (option) {
+                            AppSettings.GuideHistory.ONE_DAY -> R.string.settings_guide_history_one
+                            AppSettings.GuideHistory.THREE_DAYS -> R.string.settings_guide_history_three
+                            AppSettings.GuideHistory.SEVEN_DAYS -> R.string.settings_guide_history_seven
+                        },
+                    ),
+                    guideHistory == option,
+                ) { settings.setGuideHistory(option) }
+            }
+            Text(
+                stringResource(R.string.settings_guide_history_note),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 

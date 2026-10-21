@@ -74,6 +74,7 @@
     <string name="guide_cd_add_source">Add source</string>
     <string name="guide_prev_day">Previous day</string>
     <string name="guide_next_day">Next day</string>
+    <string name="guide_yesterday">Yesterday</string>
     <string name="guide_today">Today</string>
     <string name="guide_tomorrow">Tomorrow</string>
     <string name="guide_highlight_hint">Highlight a channel to see what\'s on</string>
@@ -196,6 +197,11 @@
     <string name="settings_preview_sound_subtitle">Play the preview channel\'s audio too, not just the picture.</string>
     <string name="settings_section_playback">Playback</string>
     <string name="settings_subtitles_title">Show subtitles when available</string>
+    <string name="settings_guide_history_title">Guide history</string>
+    <string name="settings_guide_history_one">One day</string>
+    <string name="settings_guide_history_three">Three days</string>
+    <string name="settings_guide_history_seven">Seven days</string>
+    <string name="settings_guide_history_note">How much guide to keep, so the programmes that already aired are still there to watch from the archive. A provider only serves what its own archive holds, and more history means a bigger database and a longer download.</string>
     <string name="settings_subtitles_subtitle">The default for new channels. While watching, the Subtitles button on the player lets you pick a specific track or turn them off.</string>
     <string name="settings_resume_title">Resume last channel on startup</string>
     <string name="settings_resume_subtitle">Open the app straight into the channel you were last watching, instead of the guide. Press Back to reach the guide.</string>

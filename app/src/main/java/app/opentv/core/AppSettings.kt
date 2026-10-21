@@ -295,6 +295,32 @@ class AppSettings private constructor(context: Context) {
         _playerResizeMode.value = mode
     }
 
+    /**
+     * How much guide to keep.
+     *
+     * A ceiling, not a promise: a provider only serves what its own archive holds, and the
+     * panel is asked for the same number of days. Keeping more means a bigger database and
+     * a longer guide download, so the choice belongs to whoever pays for the box's memory.
+     */
+    enum class GuideHistory(val days: Int) {
+        ONE_DAY(1),
+        THREE_DAYS(3),
+        SEVEN_DAYS(7);
+
+        companion object {
+            fun fromStoredValue(value: String?): GuideHistory =
+                entries.firstOrNull { it.name == value } ?: ONE_DAY
+        }
+    }
+
+    private val _guideHistory = MutableStateFlow(savedGuideHistory(context))
+    val guideHistory: StateFlow<GuideHistory> = _guideHistory.asStateFlow()
+
+    fun setGuideHistory(history: GuideHistory) {
+        prefs.edit().putString(KEY_GUIDE_HISTORY, history.name).apply()
+        _guideHistory.value = history
+    }
+
     private fun readThemeMode(): ThemeMode =
         runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: "") }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -460,6 +486,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_SUBTITLES = "subtitles_enabled"
         private const val KEY_BUFFER_PRESET = "buffer_preset"
         private const val KEY_DECODER = "decoder_preference"
+        private const val KEY_GUIDE_HISTORY = "guide_history"
         private const val KEY_PREVIEW_VIDEO = "guide_preview_video"
         private const val KEY_PREVIEW_SOUND = "guide_preview_sound"
         private const val KEY_PIN_HASH = "parental_pin_hash"
@@ -521,6 +548,16 @@ class AppSettings private constructor(context: Context) {
                         .getString(KEY_BUFFER_PRESET, null),
                 )
             }.getOrDefault(BufferPreset.DEFAULT)
+
+        /** The stored guide history, read straight from the preferences. */
+        fun savedGuideHistory(context: Context): GuideHistory =
+            runCatching {
+                GuideHistory.fromStoredValue(
+                    context.applicationContext
+                        .getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
+                        .getString(KEY_GUIDE_HISTORY, null),
+                )
+            }.getOrDefault(GuideHistory.ONE_DAY)
 
         /** The stored decoder preference, read straight from the preferences. */
         fun savedDecoderPreference(context: Context): DecoderPreference =

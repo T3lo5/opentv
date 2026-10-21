@@ -271,9 +271,19 @@ class XtreamApi(
         )
     }
 
-    /** Opens the XMLTV guide as a stream. The caller must close it. */
-    suspend fun openEpgStream(source: Source): InputStream = withContext(Dispatchers.IO) {
-        val url = source.epgUrl?.toHttpUrlOrNull() ?: xmltvUrl(source)
+    /**
+     * Opens the XMLTV guide as a stream. The caller must close it.
+     *
+     * [prevDays] and [nextDays] are how much guide to ask the panel for. The panel's own
+     * default is one day either way, which is less than the app's guide window shows, so
+     * they are asked for explicitly rather than left to chance.
+     */
+    suspend fun openEpgStream(
+        source: Source,
+        prevDays: Int = 1,
+        nextDays: Int = 1,
+    ): InputStream = withContext(Dispatchers.IO) {
+        val url = source.epgUrl?.toHttpUrlOrNull() ?: xmltvUrl(source, prevDays, nextDays)
         val response = http.newCall(request(source, url)).execute()
         if (!response.isSuccessful) {
             response.close()
@@ -332,11 +342,13 @@ class XtreamApi(
         }
     }
 
-    private fun xmltvUrl(source: Source): HttpUrl =
+    private fun xmltvUrl(source: Source, prevDays: Int, nextDays: Int): HttpUrl =
         baseUrl(source).newBuilder()
             .encodedPath("/xmltv.php")
             .addQueryParameter("username", source.username.orEmpty())
             .addQueryParameter("password", source.password.orEmpty())
+            .addQueryParameter("prev_days", prevDays.coerceAtLeast(0).toString())
+            .addQueryParameter("next_days", nextDays.coerceAtLeast(0).toString())
             .build()
 
     private fun baseUrl(source: Source): HttpUrl =
