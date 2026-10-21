@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.12.0
+
+- **Catch-up for M3U playlists.** Xtream providers have been able to keep an archive for years;
+  M3U providers use the Kodi tags (`catchup`, `catchup-source`, `catchup-days`,
+  `catchup-correction`, `catchup-type`, `timeshift`) and every mode Kodi defines — `default`,
+  `append`, `shift`, `flussonic`, `xc`, `vod`. Both work now. The programmes that already aired
+  are listed in the channel menu under **Earlier — watch from start**, and in the player itself,
+  over the picture, without leaving what you were watching.
+- **Catch-up asks the provider for the right hour.** The Xtream panel names its archive
+  `/tv_archive/{stream_id}/YYYY-MM-DD:HH-mm.ts` and looks that name up against *its* timezone —
+  so a phone in São Paulo asking a Paris panel for "19:00" was getting a recording from three
+  hours earlier. The panel's own timezone is now read at login and kept, and a playlist with no
+  panel to ask can have one set by hand.
+- **Catch-up knows how far back the archive goes.** The archive depth (`tv_archive_duration`,
+  `catchup-days`) was stored and never read, so every finished programme offered a link the
+  provider would answer with a 404. The depth now rules programmes out, and says so instead of
+  failing. A 404 also says which of the two it is now: a provider whose server is down, or an
+  address that is wrong.
+- **A live transport bar.** The live player had no way to scrub: play, pause and fifteen-second
+  jumps, and the two-minute buffer the player was already keeping was unreachable. There is a bar
+  now, a **LIVE** button back to the edge, and — where the stream allows it — the past to rewind
+  into. The transport row scrolls, so the last chip is no longer squeezed into a column of
+  letters.
+- **The guide, in the player.** Watching a channel and wanting to know what else is on is the
+  most ordinary thing a viewer does, and making it leave the player to find out was a small
+  hostility. The guide is now over the picture (the remote's GUIDE key opens it, as do two new
+  buttons), and it can page back to yesterday.
+- **Guide history.** How much guide to keep is yours to choose — a day, three or seven. The
+  provider is asked for exactly what will be kept, so a programme from last week is still there
+  to watch from the archive.
+- **Playback knobs.** A buffer size for the box that is short of memory or on a bad line, and
+  an escape hatch for the boxes whose hardware decoder stutters or shows a green picture: prefer
+  the software decoder instead.
+- **A few things that were quietly wrong.** The built-in US and Canadian EPG guides pointed at
+  files their host had renamed, and answered 404; the settings button fell off the bottom of the
+  side rail on a phone in landscape; the provider chips on the first-run screen did the same.
+
 ## 0.11.8
 
 - **Edit a saved provider.** Settings → Providers now has an **Edit** button on each provider, so you
