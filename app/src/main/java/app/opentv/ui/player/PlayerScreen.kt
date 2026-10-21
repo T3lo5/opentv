@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -108,9 +110,12 @@ import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.core.requestIgnoreBatteryOptimizations
 import app.opentv.data.model.Channel
+import app.opentv.data.model.Programme
 import app.opentv.data.model.shownName
 import app.opentv.player.PlaybackQueue
 import app.opentv.ui.formatBehind
+import app.opentv.ui.catchupUrl
+import app.opentv.ui.formatProgrammeTime
 import app.opentv.ui.formatDuration
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.ui.ChannelsViewModel
@@ -146,6 +151,9 @@ import java.util.Locale
 fun PlayerScreen(
     channelId: Long?,
     onBack: () -> Unit,
+    // A programme that already aired plays back from the provider's archive, which is a
+    // different kind of stream — the VOD player, not this one.
+    onPlayCatchup: (key: String, url: String, title: String, userAgent: String?) -> Unit = { _, _, _, _ -> },
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -208,6 +216,13 @@ fun PlayerScreen(
     // the most ordinary thing a viewer does, and making it leave the player to find out is
     // the kind of small hostility that makes an app feel like a website.
     var guideVisible by remember { mutableStateOf(false) }
+    // What already aired on this channel, and the provider's way back to it. Opened from the
+    // player because "I missed the show that just ended" is asked while watching it.
+    var catchupVisible by remember { mutableStateOf(false) }
+    var catchupProgrammes by remember { mutableStateOf<List<Programme>>(emptyList()) }
+    // Whether this channel has an archive at all. The button is only worth showing when there
+    // is something behind it.
+    val channelHasArchive = variants.any { it.tvArchive }
     // The guide's data, and the view model behind it. Collected only while the guide is
     // open: the EPG index is the most expensive thing the app builds, and a viewer who is
     // watching television should not pay for it.
@@ -243,6 +258,7 @@ fun PlayerScreen(
     val rootFocus = remember { FocusRequester() }
     val listFocus = remember { FocusRequester() }
     val guideFocus = remember { FocusRequester() }
+    val catchupFocus = remember { FocusRequester() }
 
     // The channel list you were browsing, for channel up/down and the in-player list. Snapshotted
     // on entry so it doesn't shift under you mid-session.
@@ -440,6 +456,53 @@ fun PlayerScreen(
             delay(60)
             runCatching { guideFocus.requestFocus() }
         }
+    }
+
+    /**
+     * Plays a programme that already aired, from the provider's archive.
+     *
+     * The archive is a different kind of stream — seekable, and not the live edge — so it
+     * plays in the VOD player rather than here.
+     */
+    fun playCatchup(programme: Programme) {
+        val channel = variants.firstOrNull() ?: return
+        scope.launch {
+            val source = graph.sourceRepository.byId(channel.sourceId) ?: return@launch
+            val url = catchupUrl(
+                source = source,
+                channel = channel,
+                programme = programme,
+                nowUtcMillis = System.currentTimeMillis(),
+                xtreamApi = graph.xtreamApi,
+            ) ?: return@launch
+            onPlayCatchup(
+                "catchup:${channel.id}:${programme.startUtcMillis}",
+                url,
+                "${channel.shownName} — ${programme.title}",
+                source.userAgent,
+            )
+            catchupVisible = false
+        }
+    }
+
+    // The catch-up panel takes the focus when it opens, for the same reason the guide does.
+    LaunchedEffect(catchupVisible) {
+        if (catchupVisible) {
+            delay(60)
+            runCatching { catchupFocus.requestFocus() }
+        }
+    }
+
+    // What already aired on this channel, loaded when the panel opens — the guide index is
+    // the expensive part, and nobody is going to look at it while the panel is shut.
+    LaunchedEffect(catchupVisible, channelId) {
+        if (!catchupVisible) return@LaunchedEffect
+        val channel = variants.firstOrNull() ?: return@LaunchedEffect
+        catchupProgrammes = guideViewModel.finishedProgrammes(
+            channel = channel,
+            variants = variants,
+            nowUtcMillis = System.currentTimeMillis(),
+        )
     }
 
     Box(
@@ -680,9 +743,22 @@ fun PlayerScreen(
                     BarChip(Icons.Filled.List, stringResource(R.string.common_channels), false) {
                         channelListVisible = true
                         guideVisible = false
+                        catchupVisible = false
                         interaction++
                     }
                     Spacer(Modifier.width(10.dp))
+                    // What already aired here, and the provider's way back to it. The button
+                    // is only there when there is something to watch: a channel with no
+                    // archive has no past to offer.
+                    if (channelHasArchive) {
+                        BarChip(Icons.Filled.History, stringResource(R.string.player_catchup_title), false) {
+                            catchupVisible = true
+                            guideVisible = false
+                            channelListVisible = false
+                            interaction++
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    }
                     if (controller.isSeekable || canRewind) {
                         BarChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind), false) {
                             controller.seekBackward(); interaction++
@@ -825,6 +901,59 @@ fun PlayerScreen(
                     .focusRequester(guideFocus)
                     .focusable(),
             ) {
+                // What already aired on this channel, and the provider's way back to it.
+                // The same list the channel menu shows, but over the picture — because
+                // "I missed the one that just ended" is asked while watching.
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.9f))
+                        .padding(16.dp)
+                        .focusRequester(catchupFocus)
+                        .focusable(),
+                ) {
+                    Text(
+                        stringResource(R.string.player_catchup_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (catchupProgrammes.isEmpty()) {
+                        Text(
+                            stringResource(R.string.player_catchup_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.75f),
+                        )
+                    } else {
+                        LazyColumn {
+                            items(catchupProgrammes) { programme ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            playCatchup(programme)
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        formatProgrammeTime(programme.startUtcMillis, System.currentTimeMillis()),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.width(150.dp),
+                                    )
+                                    Text(
+                                        programme.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 GuideGrid(
                     rows = guideRows,
                     windowStartMillis = guideWindowStart,

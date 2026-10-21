@@ -87,6 +87,9 @@ import app.opentv.player.PlayerController
 import app.opentv.ui.ChannelsViewModel
 import app.opentv.ui.RecordingBackgroundDialog
 import app.opentv.ui.RecordingBackgroundPrompt
+import app.opentv.ui.catchupUrl
+import app.opentv.ui.formatProgrammeTime
+import app.opentv.ui.formatTime
 import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -416,10 +419,10 @@ fun HomeScreen(
                 val dayLabel = when (guideDayOffset) {
                     0 -> stringResource(R.string.guide_today)
                     1 -> stringResource(R.string.guide_tomorrow)
+                    -1 -> stringResource(R.string.guide_yesterday)
                     else -> remember(windowStart) {
                         SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(windowStart))
                     }
-                    -1 -> stringResource(R.string.guide_yesterday)
                 }
                 GuidePreview(
                     row = highlightedRow,
@@ -588,29 +591,26 @@ fun HomeScreen(
                                     if (source == null) {
                                         Toast.makeText(context, context.getString(R.string.guide_catchup_link_failed), Toast.LENGTH_SHORT).show()
                                     } else {
-                                        // Two ways to reach the archive. A playlist that describes its own
-                                        // catch-up gives us the template, tokens and all; an Xtream login
-                                        // gives us the account, and the URL is built from that.
-                                        val template = channel.catchupSource
-                                        val url = if (template != null) {
-                                            M3uCatchup.buildUrl(
-                                                template = template,
-                                                startUtcMillis = programme.startUtcMillis,
-                                                endUtcMillis = programme.endUtcMillis,
-                                                nowUtcMillis = System.currentTimeMillis(),
-                                                correctionSecs = channel.catchupCorrectionSecs,
-                                                zone = XtreamApi.zoneOf(source.timezone),
-                                            )
-                                        } else {
-                                            val mins = (programme.durationMillis / 60000).toInt().coerceAtLeast(1)
-                                            graph.xtreamApi.catchupUrl(source, channel.streamId, programme.startUtcMillis, mins)
-                                        }
-                                        onPlayCatchup(
-                                            "catchup:${channel.id}:${programme.startUtcMillis}",
-                                            url,
-                                            "${channel.shownName} — ${programme.title}",
-                                            source.userAgent,
+                                        // Two ways to reach the archive: a playlist that describes its
+                                        // own catch-up gives a template, an Xtream login gives the
+                                        // account. Both end up in the same place.
+                                        val url = catchupUrl(
+                                            source = source,
+                                            channel = channel,
+                                            programme = programme,
+                                            nowUtcMillis = System.currentTimeMillis(),
+                                            xtreamApi = graph.xtreamApi,
                                         )
+                                        if (url == null) {
+                                            Toast.makeText(context, context.getString(R.string.guide_catchup_link_failed), Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onPlayCatchup(
+                                                "catchup:${channel.id}:${programme.startUtcMillis}",
+                                                url,
+                                                "${channel.shownName} — ${programme.title}",
+                                                source.userAgent,
+                                            )
+                                        }
                                     }
                                 }
                                 recordTarget = null
@@ -1182,30 +1182,6 @@ private fun EmptyState(onAddSource: () -> Unit) {
 }
 
 /** UTC in the database, device zone on screen. Converted here and nowhere else. */
-private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-private val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
 
-private fun formatTime(utcMillis: Long): String = timeFormat.format(Date(utcMillis))
 
-/**
- * A finished programme's time, with the day spelled out when it is not today.
- *
- * "20:00" for today, "Yesterday 20:00" for the day before, "Mon 20:00" further back. The
- * catch-up list is mostly yesterday, and a bare clock time would not say which day it was.
- */
-@Composable
-private fun formatProgrammeTime(utcMillis: Long, nowUtcMillis: Long): String {
-    val time = formatTime(utcMillis)
-    val then = java.util.Calendar.getInstance().apply { timeInMillis = utcMillis }
-    val now = java.util.Calendar.getInstance().apply { timeInMillis = nowUtcMillis }
-    // Days between the two dates, counted on the calendar rather than in milliseconds, so a
-    // clock change in the night does not make yesterday look like two days ago.
-    val days = (now.get(java.util.Calendar.YEAR) - then.get(java.util.Calendar.YEAR)) * 365 +
-        (now.get(java.util.Calendar.DAY_OF_YEAR) - then.get(java.util.Calendar.DAY_OF_YEAR))
-    return when (days) {
-        0 -> time
-        1 -> stringResource(R.string.guide_yesterday, time)
-        else -> "${dayFormat.format(Date(utcMillis))} $time"
-    }
-}

@@ -503,11 +503,22 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
      * Only what the provider still keeps is offered: a link to a recording it has thrown
      * away is a 404 waiting to happen.
      */
-    suspend fun finishedProgrammes(row: Row, nowUtcMillis: Long, limit: Int = 12): List<Programme> {
-        val channel = row.primary
+    suspend fun finishedProgrammes(row: Row, nowUtcMillis: Long, limit: Int = 12): List<Programme> =
+        finishedProgrammes(row.primary, row.variants, nowUtcMillis, limit)
+
+    /**
+     * The same list, for a channel the caller already has: the player knows the channel it
+     * is showing and does not have a [Row] to hand.
+     */
+    suspend fun finishedProgrammes(
+        channel: Channel,
+        variants: List<Channel>,
+        nowUtcMillis: Long,
+        limit: Int = 12,
+    ): List<Programme> {
         if (!channel.tvArchive) return emptyList()
         val past = graph.epgRepository.finished(
-            epgChannelIds = row.variants.flatMap { it.epgCandidates },
+            epgChannelIds = variants.flatMap { it.epgCandidates },
             nowUtcMillis = nowUtcMillis,
             limit = limit,
         )

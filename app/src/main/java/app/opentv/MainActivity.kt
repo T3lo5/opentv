@@ -372,7 +372,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     },
                     onPlayCatchup = { key, url, title, ua ->
                         // Catch-up is a seekable archive stream — plays through the VOD player.
-                        navController.navigate(Routes.vodPlayer(key, url, title, ua))
+                        navController.navigate(Routes.vodPlayer(key, url, title, ua.orEmpty()))
                     },
                     activeProfileName = activeProfileName,
                 )
@@ -469,6 +469,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 PlayerScreen(
                     channelId = channelId,
                     onBack = { navController.popBackStack() },
+                    onPlayCatchup = { key, url, title, ua ->
+                        // Catch-up is a seekable archive stream — plays through the VOD player.
+                        navController.navigate(Routes.vodPlayer(key, url, title, ua.orEmpty()))
+                    },
                 )
             }
 
