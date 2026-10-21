@@ -133,6 +133,7 @@
     <string name="player_aspect">Aspect</string>
     <string name="player_record">Record</string>
     <string name="player_pop_out">Pop out</string>
+    <string name="player_turn_off">Turn off</string>
     <string name="player_last">Last</string>
     <string name="player_quality_standard">Standard</string>
     <string name="player_aspect_fit">Fit</string>

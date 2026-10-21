@@ -8,6 +8,7 @@ package app.opentv.ui.channels
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -190,6 +192,45 @@ fun HomeScreen(
             runCatching { railFocusRequester.requestFocus() }
             pendingRailFocus = false
         }
+    }
+
+    // The d-pad's up/down through the line-up, handled by hand — see [VerticalListFocus]. It
+    // owns the focus requesters for the rows, and it is what puts the focus on the first
+    // channel when the guide opens: with nothing focused a remote has nothing to press, which
+    // is how the guide ended up unreachable on a television.
+    val guideFocus = remember { VerticalListFocus() }
+    val guideScope = rememberCoroutineScope()
+    LaunchedEffect(guideScope) { guideFocus.attach(guideScope) }
+    var guideFocusPlaced by remember { mutableStateOf(false) }
+    // Choosing a folder from the rail lands the d-pad inside it: picking a category is the
+    // first half of "find me this channel", and walking what is in it is the second half. The
+    // rows for the new folder arrive a moment after the tap, so the focus waits for them —
+    // asking for it straight away would land it on the list being left behind.
+    var pendingFolderFocus by remember { mutableStateOf(false) }
+    var rowsAtFolderPick by remember { mutableStateOf<List<ChannelsViewModel.Row>?>(null) }
+    LaunchedEffect(rows, pendingFolderFocus) {
+        if (rows.isEmpty()) return@LaunchedEffect
+        guideFocus.update(rows.map { it.key })
+        if (!guideFocusPlaced) {
+            delay(80)
+            if (guideFocus.focusIndex(0)) guideFocusPlaced = true
+            return@LaunchedEffect
+        }
+        if (pendingFolderFocus) {
+            if (rowsAtFolderPick != null && rows == rowsAtFolderPick) return@LaunchedEffect
+            delay(80)
+            if (guideFocus.focusIndex(0)) {
+                pendingFolderFocus = false
+                rowsAtFolderPick = null
+            }
+            return@LaunchedEffect
+        }
+        // The rows were rebuilt — a catalogue or EPG sync lands, and the line-up is a new set
+        // of nodes. The row that had the focus went with the old ones, so the focus is put
+        // back where it was. Without this the viewer presses down and nothing happens,
+        // because there is no focus left to move.
+        delay(60)
+        guideFocus.lastFocusedKey?.let { guideFocus.focusKey(it) }
     }
 
     // Re-evaluate "now" once a minute so progress bars advance without leaving the screen.
@@ -355,7 +396,11 @@ fun HomeScreen(
                     RailEntry(
                         label = stringResource(R.string.guide_favourites),
                         selected = favouritesOnly,
-                        onClick = viewModel::selectFavourites,
+                        onClick = {
+                            viewModel.selectFavourites()
+                            pendingFolderFocus = true
+                            rowsAtFolderPick = rows
+                        },
                         modifier = if (favouritesOnly) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
@@ -364,7 +409,11 @@ fun HomeScreen(
                     RailEntry(
                         label = stringResource(R.string.guide_all_channels),
                         selected = allSelected,
-                        onClick = { viewModel.selectCategory(null) },
+                        onClick = {
+                            viewModel.selectCategory(null)
+                            pendingFolderFocus = true
+                            rowsAtFolderPick = rows
+                        },
                         modifier = if (allSelected) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
@@ -373,7 +422,11 @@ fun HomeScreen(
                     RailEntry(
                         label = group.label,
                         selected = groupSelected,
-                        onClick = { viewModel.selectCategory(group.key) },
+                        onClick = {
+                            viewModel.selectCategory(group.key)
+                            pendingFolderFocus = true
+                            rowsAtFolderPick = rows
+                        },
                         modifier = if (groupSelected) Modifier.focusRequester(railFocusRequester) else Modifier,
                     )
                 }
@@ -455,7 +508,17 @@ fun HomeScreen(
                         false
                     }
                 }
-                if (channelLayout == AppSettings.ChannelLayout.LIST) {
+                // Which layout the line-up is drawn in.
+                //
+                // A phone follows the setting. A television draws the whole EPG as a grid when
+                // the viewer is looking at *everything*, and as a plain list inside a folder:
+                // inside a category the grid is a lot of sideways scrolling to answer a simple
+                // question — "what is in here?" — and the arrows end up walking a timeline
+                // instead of a list of channels.
+                val inFolder = selectedCategory != null || favouritesOnly
+                val listLayout = channelLayout == AppSettings.ChannelLayout.LIST ||
+                    (isTelevision && inFolder)
+                if (listLayout) {
                     ChannelList(
                         rows = rows,
                         selectedKey = highlightedRow?.key,
@@ -463,6 +526,7 @@ fun HomeScreen(
                         onFocusRow = onFocusChannel,
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
                         onExitLeftFromChannel = onExitLeftChannel,
+                        vertical = guideFocus,
                         modifier = Modifier.weight(1f).padding(start = 12.dp, end = 12.dp),
                     )
                 } else {
@@ -478,6 +542,7 @@ fun HomeScreen(
                         onProgramme = { row, programme -> recordTarget = row to programme },
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
                         onExitLeftFromChannel = onExitLeftChannel,
+                        vertical = guideFocus,
                         modifier = Modifier.weight(1f).padding(start = 12.dp, end = 12.dp),
                     )
                 }
@@ -505,6 +570,13 @@ fun HomeScreen(
         }
         val liveNow = nowMillis in programme.startUtcMillis until programme.endUtcMillis
         val recordingThis = activeRecordings.firstOrNull { it.channelId == channel.id }
+        // The d-pad's first stop inside the dialog: its first action. A dialog opens its own
+        // window, and a window with nothing focused is a window the remote cannot drive.
+        val dialogFocus = remember { FocusRequester() }
+        LaunchedEffect(programme.id, programme.startUtcMillis) {
+            delay(80)
+            runCatching { dialogFocus.requestFocus() }
+        }
         Dialog(onDismissRequest = { recordTarget = null }) {
             Column(
                 Modifier
@@ -568,12 +640,20 @@ fun HomeScreen(
 
                 val isPast = programme.endUtcMillis <= nowMillis
                 when {
-                    liveNow && recordingThis != null -> RecordActionRow(stringResource(R.string.rec_stop_recording), primary = true) {
+                    liveNow && recordingThis != null -> RecordActionRow(
+                        label = stringResource(R.string.rec_stop_recording),
+                        primary = true,
+                        focusRequester = dialogFocus,
+                    ) {
                         graph.recordingEngine.stop(recordingThis.id)
                         Toast.makeText(context, context.getString(R.string.rec_recording_stopped), Toast.LENGTH_SHORT).show()
                         recordTarget = null
                     }
-                    liveNow -> RecordActionRow(stringResource(R.string.rec_record_now), primary = true) {
+                    liveNow -> RecordActionRow(
+                        label = stringResource(R.string.rec_record_now),
+                        primary = true,
+                        focusRequester = dialogFocus,
+                    ) {
                         recordScope.launch { graph.recordingEngine.startChannel(chosenVariant, programme) }
                         Toast.makeText(context, context.getString(R.string.rec_recording_channel, channel.shownName), Toast.LENGTH_LONG).show()
                         promptBackgroundIfNeeded()
@@ -585,7 +665,11 @@ fun HomeScreen(
                     // seven days back.
                     isPast && channel.tvArchive -> {
                         if (channel.catchupCovers(programme.startUtcMillis, nowMillis)) {
-                            RecordActionRow(stringResource(R.string.guide_watch_from_start), primary = true) {
+                            RecordActionRow(
+                                label = stringResource(R.string.guide_watch_from_start),
+                                primary = true,
+                                focusRequester = dialogFocus,
+                            ) {
                                 recordScope.launch {
                                     val source = graph.sourceRepository.byId(channel.sourceId)
                                     if (source == null) {
@@ -624,7 +708,11 @@ fun HomeScreen(
                             )
                         }
                     }
-                    !isPast -> RecordActionRow(stringResource(R.string.rec_schedule_recording), primary = true) {
+                    !isPast -> RecordActionRow(
+                        label = stringResource(R.string.rec_schedule_recording),
+                        primary = true,
+                        focusRequester = dialogFocus,
+                    ) {
                         recordScope.launch { graph.recordingEngine.scheduleProgramme(chosenVariant, programme) }
                         Toast.makeText(context, context.getString(R.string.rec_scheduled_title, programme.title), Toast.LENGTH_LONG).show()
                         promptBackgroundIfNeeded()
@@ -689,6 +777,12 @@ fun HomeScreen(
     // Single-connection guard: confirm before opening a live stream that would fight a recording.
     pendingLiveChannel?.let { liveChannel ->
         val recTitle = activeRecordings.firstOrNull()?.title.orEmpty()
+        // The d-pad's first stop inside the dialog: its first action.
+        val warnFocus = remember { FocusRequester() }
+        LaunchedEffect(liveChannel.id) {
+            delay(80)
+            runCatching { warnFocus.requestFocus() }
+        }
         Dialog(onDismissRequest = { pendingLiveChannel = null }) {
             Column(
                 Modifier
@@ -709,7 +803,10 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(16.dp))
-                RecordActionRow(stringResource(R.string.rec_live_warn_watch)) {
+                RecordActionRow(
+                    label = stringResource(R.string.rec_live_warn_watch),
+                    focusRequester = warnFocus,
+                ) {
                     pendingLiveChannel = null
                     activeRecordings.forEach { graph.recordingEngine.stop(it.id) }
                     startLive(liveChannel)
@@ -733,6 +830,14 @@ fun HomeScreen(
         var finished by remember(menuRow.key) { mutableStateOf<List<Programme>>(emptyList()) }
         LaunchedEffect(menuRow.key) {
             finished = viewModel.finishedProgrammes(menuRow, nowMillis)
+        }
+        // The d-pad's first stop inside the menu: the first action. A dialog opens its own
+        // window, and a window with nothing focused is a window the remote cannot drive —
+        // the arrows move nothing and OK does nothing.
+        val menuFocus = remember { FocusRequester() }
+        LaunchedEffect(menuRow.key) {
+            delay(80)
+            runCatching { menuFocus.requestFocus() }
         }
         Dialog(onDismissRequest = { channelMenu = null }) {
             Column(
@@ -764,7 +869,10 @@ fun HomeScreen(
                     Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    RecordActionRow(stringResource(R.string.guide_watch)) {
+                    RecordActionRow(
+                        label = stringResource(R.string.guide_watch),
+                        focusRequester = menuFocus,
+                    ) {
                         channelMenu = null
                         requestLive(channel)
                     }
@@ -910,7 +1018,12 @@ private fun InfoRow(label: String) {
 }
 
 @Composable
-private fun RecordActionRow(label: String, primary: Boolean = false, onClick: () -> Unit) {
+private fun RecordActionRow(
+    label: String,
+    primary: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
     val bg = when {
         focused -> MaterialTheme.colorScheme.primary
@@ -930,10 +1043,14 @@ private fun RecordActionRow(label: String, primary: Boolean = false, onClick: ()
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
+            // Focusable, or the menu is a dead end on a television: a clickable row is not a
+            // focus target, so the arrows could not reach "Watch" and OK had nothing to press.
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 16.dp, vertical = 12.dp),
     )
 }
@@ -962,17 +1079,20 @@ private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }
 
 @Composable
 private fun RailEntry(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var focused by remember { mutableStateOf(false) }
     Text(
         text = label,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+        color = if (focused) MaterialTheme.colorScheme.onPrimary
+        else if (selected) MaterialTheme.colorScheme.onPrimaryContainer
         else MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -980,10 +1100,18 @@ private fun RailEntry(label: String, selected: Boolean, onClick: () -> Unit, mod
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surface,
+                when {
+                    focused -> MaterialTheme.colorScheme.primary
+                    selected -> MaterialTheme.colorScheme.primaryContainer
+                    else -> MaterialTheme.colorScheme.surface
+                },
             )
+            .onFocusChanged { focused = it.isFocused }
+            // Focusable, or the category rail is decoration on a television: a clickable row is
+            // not a focus target, so the arrows walked past every category and the folders
+            // could not be opened at all.
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 12.dp, vertical = 10.dp),
     )
 }

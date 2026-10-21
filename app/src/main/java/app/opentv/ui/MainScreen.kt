@@ -13,6 +13,7 @@ import app.opentv.core.StatusBus
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -354,7 +355,11 @@ private fun RailItem(
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .onFocusChanged { focused = it.isFocused }
+            // Focusable, or the rail is decoration on a television: a clickable row is not a
+            // focus target, so the arrows walked past every tab and Search and Settings could
+            // not be reached at all.
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

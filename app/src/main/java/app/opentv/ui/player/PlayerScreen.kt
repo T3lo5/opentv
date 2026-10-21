@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +77,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +95,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -101,10 +104,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.Tracks
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import app.opentv.R
+import app.opentv.core.AppSettings
 import app.opentv.core.ServiceLocator
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
@@ -120,6 +126,7 @@ import app.opentv.ui.formatDuration
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.opentv.ui.ChannelsViewModel
 import app.opentv.ui.channels.GuideGrid
+import app.opentv.ui.channels.VerticalListFocus
 import app.opentv.player.PlayerController
 import app.opentv.ui.RecordingBackgroundDialog
 import app.opentv.ui.RecordingBackgroundPrompt
@@ -174,17 +181,28 @@ fun PlayerScreen(
     // What's recording right now, so the Record button can show as armed for this channel.
     val activeRecordings by graph.recordingRepository.observeActive().collectAsState(initial = emptyList())
 
-    // Hold the screen awake while the player is on screen. A view-level keepScreenOn flag isn't
-    // reliable on every TV box, so we set the window flag on the Activity directly — that's what
-    // actually stops the system screensaver from firing mid-programme. keepScreenOn stays on too,
-    // as a belt-and-braces backstop.
+    // The mode the user chose: a television or a phone. It decides two things here — whether
+    // the picture is held awake, and whether the television's power button is offered at all.
+    val appMode by settings.appMode.collectAsState()
+    val isTelevision = appMode == AppSettings.AppMode.TV
+
+    // Hold the screen awake while the player is on screen — on a phone or tablet, where the
+    // screen dimming mid-film is the app being rude. On a TV it is the other way round: the
+    // screensaver *is* the television's ambience, and holding the picture on means the
+    // viewer cannot turn the set off and leave the programme playing in the background. A
+    // view-level keepScreenOn flag isn't reliable on every TV box, so the window flag is
+    // set directly — on anything that is not a television.
     DisposableEffect(Unit) {
         val window = context.findActivity()?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        view.keepScreenOn = true
+        if (!isTelevision) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            view.keepScreenOn = true
+        }
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            view.keepScreenOn = false
+            if (!isTelevision) {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                view.keepScreenOn = false
+            }
             controller.release()
             scope.cancel()
         }
@@ -210,6 +228,10 @@ fun PlayerScreen(
     var scrubValue by remember { mutableFloatStateOf(0f) }
 
     var controlsVisible by remember { mutableStateOf(true) }
+    // Whether the d-pad is currently on the control bar. The bar's own buttons are the only
+    // things a remote can reach with the arrows, so the key handler asks this before it
+    // decides that up/down means "change the channel".
+    var barHasFocus by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf(Panel.NONE) }
     var channelListVisible by remember { mutableStateOf(false) }
     // The guide, over the video. Watching a channel and wanting to know what else is on is
@@ -329,6 +351,32 @@ fun PlayerScreen(
         tuneTo(variants.firstOrNull { it.id == channel.id } ?: channel)
     }
 
+    // On a television, the box takes the screen away when the set is left alone — that is the
+    // screensaver, and it is the television going dark. A television that keeps talking to an
+    // empty room is not a television, so the channel stops with the picture, and starts again
+    // when the viewer comes back: the way a set wakes up with the channel still on it.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var stoppedWithTheScreen by remember { mutableStateOf(false) }
+    DisposableEffect(lifecycleOwner, isTelevision) {
+        val observer = LifecycleEventObserver { _, event ->
+            when {
+                !isTelevision -> Unit
+                event == Lifecycle.Event.ON_STOP -> {
+                    controller.stop()
+                    stoppedWithTheScreen = true
+                }
+                event == Lifecycle.Event.ON_START && stoppedWithTheScreen -> {
+                    stoppedWithTheScreen = false
+                    // Wake up with the channel still on.
+                    currentId?.let { playChannelId(it) }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Sleep timer: when the armed deadline passes, stop and leave the player. Re-arming from
     // settings restarts this effect with the new deadline.
     val sleepDeadline by SleepTimer.deadline.collectAsState()
@@ -392,8 +440,13 @@ fun PlayerScreen(
     }
 
     // Auto-hide the bar after a few seconds — but never while paused or with a picker open.
-    LaunchedEffect(controlsVisible, interaction, state, paused, panel) {
-        if (controlsVisible && !paused && panel == Panel.NONE &&
+    LaunchedEffect(controlsVisible, interaction, state, paused, panel, channelListVisible, guideVisible, catchupVisible) {
+        // The bar only auto-hides when it is the only thing on screen. A panel — the channel
+        // list, the guide, the catch-up list — is something the viewer is reading, and the
+        // bar fading out under it takes the focus with it: the panel loses the focus to the
+        // picture behind, and the arrows stop working.
+        val overlayOpen = channelListVisible || guideVisible || catchupVisible
+        if (controlsVisible && !paused && panel == Panel.NONE && !overlayOpen &&
             state is PlayerController.State.Playing
         ) {
             delay(CONTROLS_TIMEOUT_MILLIS)
@@ -403,12 +456,23 @@ fun PlayerScreen(
 
     // Focus: a picker's first row when one is open, otherwise the bar, otherwise the full-screen
     // catcher (so the next remote press brings the bar back).
-    LaunchedEffect(controlsVisible, panel) {
+    LaunchedEffect(controlsVisible, panel, channelListVisible, guideVisible, catchupVisible) {
+        val overlayOpen = channelListVisible || guideVisible || catchupVisible
         if (controlsVisible) {
             delay(40)
-            runCatching { if (panel != Panel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
+            if (!overlayOpen) {
+                runCatching {
+                    if (panel != Panel.NONE) panelFocus.requestFocus() else barFocus.requestFocus()
+                }
+            }
+            // An open panel (the channel list, the guide, the catch-up list) has the focus
+            // itself: it asks for it when it opens, and taking it back here would throw the
+            // viewer's place away.
         } else {
-            runCatching { rootFocus.requestFocus() }
+            // The bar is gone, so it cannot have the focus — and the key handler has to know
+            // that, or up/down would stop changing the channel.
+            barHasFocus = false
+            if (!overlayOpen) runCatching { rootFocus.requestFocus() }
         }
     }
 
@@ -420,6 +484,7 @@ fun PlayerScreen(
         when {
             guideVisible -> guideVisible = false
             channelListVisible -> channelListVisible = false
+            catchupVisible -> catchupVisible = false
             panel != Panel.NONE -> panel = Panel.NONE
             controlsVisible -> controlsVisible = false
             else -> {
@@ -439,11 +504,55 @@ fun PlayerScreen(
         if (target != null) playChannelId(target.id)
     }
 
-    // Focus the channel list when it opens; hand focus back to the video catcher when it closes.
-    LaunchedEffect(channelListVisible) {
+    // The channel list is the whole provider, not the folder the viewer happened to come from.
+    //
+    // "Canais" on a television means every channel you can tune to. Handing over the folder
+    // you were browsing makes the list a dead end the moment you want to change channel, which
+    // is the only reason to open it.
+    var channelDirectory by remember { mutableStateOf<List<PlaybackQueue.Item>>(emptyList()) }
+    LaunchedEffect(channelListVisible, currentId) {
+        if (!channelListVisible) return@LaunchedEffect
+        val sourceId = currentId?.let { graph.catalogRepository.channel(it)?.sourceId }
+        graph.catalogRepository.observeChannels(sourceId).collect { channels ->
+            channelDirectory = channels.map {
+                PlaybackQueue.Item(it.id, it.shownName, it.logoUrl, it.number)
+            }
+        }
+    }
+    // The list the player shows: the whole provider once it is loaded, the browsing list until
+    // then (so the list is never empty while it opens).
+    val channelListItems = remember(channelDirectory, queue) {
+        if (channelDirectory.isNotEmpty()) channelDirectory else queue
+    }
+
+    // The d-pad's up/down through the guide over the picture, done by hand for the same
+    // reason as in the home screen's guide.
+    val guideVerticalFocus = remember { VerticalListFocus() }
+    val guideVerticalScope = rememberCoroutineScope()
+    LaunchedEffect(guideVerticalScope) { guideVerticalFocus.attach(guideVerticalScope) }
+    LaunchedEffect(guideRows) { guideVerticalFocus.update(guideRows.map { it.key }) }
+
+    // The d-pad's up/down through the channel list, done by hand for the same reason as in the
+    // guide: Compose's 2-D focus search does not walk a list of rows on this screen.
+    val channelListFocus = remember { VerticalListFocus() }
+    val channelListScope = rememberCoroutineScope()
+    LaunchedEffect(channelListScope) { channelListFocus.attach(channelListScope) }
+    LaunchedEffect(channelListItems) { channelListFocus.update(channelListItems.map { it.id }) }
+
+    // Put the focus on the channel being watched — but only once the full list is there.
+    //
+    // The list is rebuilt when the directory arrives (the browsing list is replaced by the whole
+    // provider), and a rebuilt list detaches the row that had the focus, which throws the
+    // pending focus request away. Asking after the swap is what makes the focus stick.
+    LaunchedEffect(channelListVisible, channelListItems) {
         if (channelListVisible) {
-            delay(40)
-            runCatching { listFocus.requestFocus() }
+            if (channelListItems.isEmpty()) return@LaunchedEffect
+            delay(80)
+            // The list is rebuilt when the provider's channel list is re-read, and the row
+            // that had the focus goes with the old one — so the focus goes back where it
+            // was, on the channel being watched or on the row the viewer had reached.
+            val key = channelListFocus.lastFocusedKey ?: currentId
+            key?.let { channelListFocus.focusKey(it) }
         } else if (!controlsVisible) {
             runCatching { rootFocus.requestFocus() }
         }
@@ -451,9 +560,21 @@ fun PlayerScreen(
 
     // The guide takes the focus when it opens, so the d-pad walks the timeline and not the
     // transport bar that is still behind it.
-    LaunchedEffect(guideVisible) {
-        if (guideVisible) {
-            delay(60)
+    //
+    // The focus lands on a *channel*, not on the panel that holds the grid. A focus that
+    // sits on the panel has nothing to move: the arrows walk the focus tree, and a panel
+    // with the focus is a dead end — the guide opened and nothing happened, which is the
+    // one thing a guide must never do. The channel being watched is the natural first
+    // stop, and the line-up is the fallback.
+    LaunchedEffect(guideVisible, guideRows) {
+        if (!guideVisible) return@LaunchedEffect
+        if (guideRows.isEmpty()) return@LaunchedEffect
+        delay(80)
+        val key = currentId?.let { id -> guideRows.firstOrNull { it.primary.id == id }?.key }
+            ?: guideRows.firstOrNull()?.key
+        if (key == null || !guideVerticalFocus.focusKey(key)) {
+            // No rows to put the focus on yet: the panel takes it, so the guide at least
+            // has the arrows.
             runCatching { guideFocus.requestFocus() }
         }
     }
@@ -526,6 +647,7 @@ fun PlayerScreen(
                     event.key == Key.Guide -> {
                         guideVisible = !guideVisible
                         if (!guideVisible) channelListVisible = false
+                        if (guideVisible) catchupVisible = false
                         interaction++
                         true
                     }
@@ -537,17 +659,42 @@ fun PlayerScreen(
                     // Channel up/down works whether or not the bar is showing — this remote has no
                     // CH+/CH- keys, so up/down IS the channel changer. Each zap flashes the bar as a
                     // channel banner, then it auto-hides.
-                    event.key == Key.DirectionUp || event.key == Key.ChannelUp -> { zapBy(-1); reveal(); true }
-                    event.key == Key.DirectionDown || event.key == Key.ChannelDown -> { zapBy(1); reveal(); true }
+                    //
+                    // The exception: when the d-pad is already walking the bar's own buttons, up
+                    // and down belong to the bar. Zapping the channel out from under a button the
+                    // viewer is trying to reach is how you end up watching a different programme
+                    // than the one you asked for.
+                    event.key == Key.DirectionUp || event.key == Key.ChannelUp -> {
+                        if (!barHasFocus) zapBy(-1)
+                        reveal(); true
+                    }
+                    event.key == Key.DirectionDown || event.key == Key.ChannelDown -> {
+                        if (!barHasFocus) zapBy(1)
+                        reveal(); true
+                    }
                     // With the bar up, left/right drive its buttons; let them through.
                     controlsVisible -> {
                         interaction++
                         false
                     }
                     // Immersive: left opens the channel list, right the quality picker.
-                    event.key == Key.DirectionLeft -> { if (queue.isNotEmpty()) channelListVisible = true; true }
+                    // Left/right open the channel list and the quality picker — but only when
+                    // the d-pad is not on the transport bar. The bar's own buttons are reached
+                    // with the arrows, and eating left/right here meant the only thing a
+                    // remote could press was whatever had the focus: play/pause.
+                    event.key == Key.DirectionLeft -> {
+                        if (barHasFocus) { interaction++; false }
+                        else {
+                            if (queue.isNotEmpty()) channelListVisible = true
+                            true
+                        }
+                    }
                     event.key == Key.DirectionRight -> {
-                        if (variants.size > 1) { reveal(); panel = Panel.QUALITY }; true
+                        if (barHasFocus) { interaction++; false }
+                        else {
+                            if (variants.size > 1) { reveal(); panel = Panel.QUALITY }
+                            true
+                        }
                     }
                     else -> { reveal(); true }
                 }
@@ -729,14 +876,30 @@ fun PlayerScreen(
                     // The row can hold more chips than a phone in landscape fits — the
                     // transport alone is ten of them now. Scrolling it sideways beats
                     // squeezing the last one into a column of letters.
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                ) {
-                    // Where to go next, before the transport: the guide and the channel
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        // Whether the d-pad is on the bar right now. The key handler needs it
+                        // to know whether up/down means "change the channel" or "walk the bar".
+                        .onFocusChanged {
+                        barHasFocus = it.isFocused || it.hasFocus
+                    },
+                ) {                    // Where to go next, before the transport: the guide and the channel
                     // list. Both used to mean walking out of the player and back in, which
                     // is no way to change channel.
-                    BarChip(Icons.Filled.DateRange, stringResource(R.string.player_guide), false) {
+                    //
+                    // The first chip carries the bar's focus. It is deliberately not the
+                    // play/pause button: a bar that lands on "pause" means the first OK
+                    // press a viewer makes stops the programme, and on a remote that is
+                    // one stray press away from the channel they were watching.
+                    BarChip(
+                        icon = Icons.Filled.DateRange,
+                        label = stringResource(R.string.player_guide),
+                        selected = false,
+                        focusRequester = barFocus,
+                    ) {
                         guideVisible = true
                         channelListVisible = false
+                        catchupVisible = false
                         interaction++
                     }
                     Spacer(Modifier.width(10.dp))
@@ -769,7 +932,6 @@ fun PlayerScreen(
                         icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
                         label = if (paused) stringResource(R.string.common_play) else stringResource(R.string.player_pause),
                         selected = false,
-                        focusRequester = barFocus,
                     ) {
                         paused = !paused
                         controller.player.playWhenReady = !paused
@@ -823,6 +985,32 @@ fun PlayerScreen(
                             interaction++
                         }
                     }
+                    // The television's power button, from inside the app: the stream stops, the
+                    // app gets out of the way, and the box is left idle.
+                    //
+                    // The screen-off the system does on its own — the screensaver, on a set
+                    // that is left alone — keeps the channel playing, which is exactly right
+                    // for "leave it on and come back to it". It is wrong for "I am done
+                    // tonight": there the whole box has to stop, and until now the only way
+                    // to do that from here was to leave the app by hand.
+                    if (isTelevision) {
+                        Spacer(Modifier.width(10.dp))
+                        BarChip(
+                            icon = Icons.Filled.PowerSettingsNew,
+                            label = stringResource(R.string.player_turn_off),
+                            selected = false,
+                            iconTint = Color(0xFFE53935),
+                        ) {
+                            // Stop the stream before the window goes, so the audio does not
+                            // outlive the app by even a moment.
+                            controller.stop()
+                            // "I am leaving, and this is where I was": the next launch opens
+                            // on this channel, the way a television set does when it is
+                            // switched on again.
+                            settings.resumeOnNextLaunch = true
+                            context.findActivity()?.finish()
+                        }
+                    }
                 }
             }
         }
@@ -834,7 +1022,7 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.CenterStart),
         ) {
-            val currentIndex = queue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+            val currentIndex = channelListItems.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
             val listState = rememberLazyListState()
             LaunchedEffect(Unit) { runCatching { listState.scrollToItem(currentIndex) } }
             Column(
@@ -842,7 +1030,8 @@ fun PlayerScreen(
                     .fillMaxHeight()
                     .width(380.dp)
                     .background(Color.Black.copy(alpha = 0.72f))
-                    .padding(vertical = 16.dp),
+                    .padding(vertical = 16.dp)
+                    .onPreviewKeyEvent { event -> channelListFocus.handle(event) },
             ) {
                 Text(
                     stringResource(R.string.common_channels),
@@ -852,7 +1041,7 @@ fun PlayerScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 // A quick "jump back to the channel you just left" pin, TiviMate-style.
-                val lastItem = previousId?.let { pid -> queue.firstOrNull { it.id == pid } }
+                val lastItem = previousId?.let { pid -> channelListItems.firstOrNull { it.id == pid } }
                 if (lastItem != null && lastItem.id != currentId) {
                     ChannelListRow(
                         item = lastItem,
@@ -867,11 +1056,12 @@ fun PlayerScreen(
                     Spacer(Modifier.height(4.dp))
                 }
                 LazyColumn(state = listState) {
-                    itemsIndexed(queue, key = { _, item -> item.id }) { index, item ->
+                    itemsIndexed(channelListItems, key = { _, item -> item.id }) { index, item ->
                         ChannelListRow(
                             item = item,
                             playing = item.id == currentId,
-                            focusRequester = if (index == currentIndex) listFocus else null,
+                            focusRequester = channelListFocus.requesterFor(item.id),
+                            onFocus = { channelListFocus.onRowFocused(item.id) },
                             onClick = {
                                 playChannelId(item.id)
                                 channelListVisible = false
@@ -901,59 +1091,6 @@ fun PlayerScreen(
                     .focusRequester(guideFocus)
                     .focusable(),
             ) {
-                // What already aired on this channel, and the provider's way back to it.
-                // The same list the channel menu shows, but over the picture — because
-                // "I missed the one that just ended" is asked while watching.
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.9f))
-                        .padding(16.dp)
-                        .focusRequester(catchupFocus)
-                        .focusable(),
-                ) {
-                    Text(
-                        stringResource(R.string.player_catchup_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (catchupProgrammes.isEmpty()) {
-                        Text(
-                            stringResource(R.string.player_catchup_empty),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.75f),
-                        )
-                    } else {
-                        LazyColumn {
-                            items(catchupProgrammes) { programme ->
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            playCatchup(programme)
-                                        }
-                                        .padding(vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        formatProgrammeTime(programme.startUtcMillis, System.currentTimeMillis()),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        modifier = Modifier.width(150.dp),
-                                    )
-                                    Text(
-                                        programme.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
                 GuideGrid(
                     rows = guideRows,
                     windowStartMillis = guideWindowStart,
@@ -966,8 +1103,75 @@ fun PlayerScreen(
                     },
                     onFocusRow = { },
                     onExitLeftFromChannel = { guideVisible = false; true },
+                    vertical = guideVerticalFocus,
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                 )
+            }
+        }
+
+        // What already aired on this channel, and the provider's way back to it. Its own panel
+        // over the picture — because "I missed the one that just ended" is asked while watching.
+        //
+        // It used to live *inside* the guide and was drawn over the whole of it, so opening
+        // the guide showed the catch-up list instead of the guide, and the arrows walked a
+        // list nobody had asked for. One overlay or the other, never both.
+        AnimatedVisibility(
+            visible = catchupVisible && !inPip,
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.92f))
+                    .padding(16.dp)
+                    .focusRequester(catchupFocus)
+                    .focusable(),
+            ) {
+                Text(
+                    stringResource(R.string.player_catchup_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (catchupProgrammes.isEmpty()) {
+                    Text(
+                        stringResource(R.string.player_catchup_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.75f),
+                    )
+                } else {
+                    LazyColumn {
+                        items(catchupProgrammes) { programme ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    // Focusable, or the list is a picture on a television: the
+                                    // arrows cannot reach a row that is not a focus target.
+                                    .focusable()
+                                    .clickable {
+                                        playCatchup(programme)
+                                    }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    formatProgrammeTime(programme.startUtcMillis, System.currentTimeMillis()),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.width(150.dp),
+                                )
+                                Text(
+                                    programme.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -990,6 +1194,7 @@ private fun ChannelListRow(
     focusRequester: FocusRequester?,
     onClick: () -> Unit,
     leadingLabel: String? = null,
+    onFocus: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
     val bg = when {
@@ -1002,9 +1207,20 @@ private fun ChannelListRow(
         Modifier
             .fillMaxWidth()
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocus()
+            }
+            // Focusable, so the d-pad can reach a channel in the list. A clickable row alone
+            // is not a focus target.
+            //
+            // And it has to come *after* the clickable: Compose finds the key handler of a
+            // focused element by walking the modifier chain and stopping at the first focus
+            // target, so a focusable() in front of the clickable hides the clickable's own
+            // handling — and OK stops doing anything on the row.
             .background(bg)
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1181,9 +1397,15 @@ private fun OptionRow(
             .fillMaxWidth()
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
+            // Focusable, so the d-pad can walk the picker's options. Without it the panel is
+            // a dead end on a remote: OK does nothing because nothing in it can hold focus.
+            //
+            // After the clickable, so the clickable keeps its own key handling: a
+            // focusable() in front of it hides it, and OK stops pressing the option.
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .clickable(onClick = onClick)
+            .focusable()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1217,11 +1439,26 @@ private fun BarChip(
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(12.dp))
             .background(container)
-            .then(
-                if (focused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                else Modifier,
+            // The border is always in the chain, transparent when the chip is not focused.
+            // Adding and removing a modifier changes the chain, and a chain that changes
+            // under a focus target can take the focus with it — and the chip becomes a
+            // picture the arrows walk straight past.
+            .border(
+                2.dp,
+                if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                RoundedCornerShape(12.dp),
             )
             .clickable(onClick = onClick)
+            // Focusable, or the chip is a picture on a television. A clickable row is not a
+            // focus target — the d-pad walks straight past it — so on a remote these buttons
+            // could only be reached by touch.
+            //
+            // And it has to come *after* the clickable. Compose finds the key handler of a
+            // focused element by walking the modifier chain and stopping at the first focus
+            // target, so a focusable() in front of the clickable hides it — and the OK
+            // button stops doing anything, which is how "the buttons don't work" was
+            // reported.
+            .focusable()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
