@@ -372,11 +372,14 @@
     <string name="about_sponsor_github">GitHub Sponsors</string>
     <string name="about_donate_paypal">Donate via PayPal</string>
     <string name="about_scan_to_donate">Scan to donate</string>
+    <string name="about_donation_goes_to_upstream">These donations go to the upstream maintainer of OpenTV, who wrote the original — this fork keeps the credit where it is due.</string>
     <string name="about_licence_links_title">Licence &amp; links</string>
     <string name="about_licence_label">Licence</string>
     <string name="about_source_code">Source code</string>
     <string name="about_report_bug">Report a bug / request a feature</string>
     <string name="about_install_page">Install page</string>
+    <string name="about_upstream_project">Upstream project</string>
+    <string name="about_free_software_notice">This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.\n\nYou should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.</string>
 
     <!-- ============================ Onboarding / add source ============================ -->
     <string name="onboarding_default_provider_name">My provider</string>
