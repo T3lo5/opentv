@@ -143,8 +143,40 @@
     <string name="settings_parental_subtitle">Bloqueio por PIN e ocultação de categorias para adultos</string>
     <string name="settings_sync_title">Sincronizar histórico de visualização</string>
     <string name="settings_sync_subtitle">Copie a lista de continuar a ver para outro dispositivo via wifi</string>
+    <string name="settings_backup_title">Ficheiro de definições</string>
+    <string name="settings_backup_subtitle">Exporte e importe a sua configuração — com os fornecedores</string>
     <string name="settings_about_title">Acerca de</string>
     <string name="settings_about_subtitle">Versão, atualizações, licença e ligações</string>
+
+    <!-- ============================ Ficheiro de definições ============================ -->
+    <string name="backup_desc">Os seus fornecedores, as suas preferências e os seus favoritos, escritos num ficheiro que pode levar para outra box. Os fornecedores viajam com as credenciais — o ficheiro é escrito onde escolher e lido onde escolher, por isso trate-o como uma palavra-passe.</string>
+    <string name="backup_export_title">Exportar</string>
+    <string name="backup_export_body">Escreve um ficheiro JSON com todos os fornecedores deste dispositivo, as definições que alterou e os seus favoritos. Escolha onde o guardar.</string>
+    <string name="backup_export_button">Escrever um ficheiro de definições</string>
+    <string name="backup_export_failed">Não foi possível escrever o ficheiro: %1$s</string>
+    <string name="backup_exported">Ficheiro de definições guardado em %1$s</string>
+    <string name="backup_exported_direct">Ficheiro de definições guardado no armazenamento da app: %1$s. Copie este ficheiro para outra box para transferir a sua configuração.</string>
+    <string name="backup_import_title">Importar</string>
+    <string name="backup_import_body">Lê um ficheiro de definições e funde-o neste dispositivo. Os fornecedores que já aqui estão são atualizados, os novos são acrescentados, e nada do que tem é apagado. Vê o que muda antes de escrever seja o que for.</string>
+    <string name="backup_import_button">Ler um ficheiro de definições</string>
+    <string name="backup_import_direct_label">Ou ler um ficheiro do armazenamento da app (escreva o nome):</string>
+    <string name="backup_import_direct_button">Ler ficheiro</string>
+    <string name="backup_import_failed">Não foi possível ler esse ficheiro como um ficheiro de definições do OpenTV: %1$s</string>
+    <string name="backup_confirm_title">Importar este ficheiro de definições?</string>
+    <string name="backup_confirm_body">%1$s. Os fornecedores nele serão acrescentados ou atualizados neste dispositivo, e os seus canais serão carregados em segundo plano.</string>
+    <string name="backup_confirm_import">Importar</string>
+    <string name="backup_imported">Definições importadas: %1$s</string>
+    <string name="backup_summary">%1$d fornecedor(es), escrito a %2$s</string>
+    <string name="backup_change_sources_added">%1$d fornecedor(es) acrescentado(s)</string>
+    <string name="backup_change_sources_updated">%1$d atualizado(s)</string>
+    <string name="backup_change_sources_skipped">%1$d ignorado(s)</string>
+    <string name="backup_change_preferences">%1$d preferência(s) restaurada(s)</string>
+    <string name="backup_change_favourites">%1$d favorito(s)</string>
+    <string name="backup_change_hidden">%1$d canal(ais) oculto(s)</string>
+    <string name="backup_change_categories">%1$d categoria(s) oculta(s)</string>
+    <string name="backup_change_nothing">nada mudaria</string>
+    <string name="backup_no_file_manager">Nenhum gerenciador de arquivos instalado. Instale um para exportar/importar ficheiros de definições.</string>
+
     <string name="settings_appearance">Aparência</string>
     <string name="settings_theme_system">Seguir o sistema</string>
     <string name="settings_theme_dark">Escuro</string>

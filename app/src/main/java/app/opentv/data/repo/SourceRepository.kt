@@ -23,6 +23,9 @@ class SourceRepository(
 
     suspend fun enabled(): List<Source> = dao.enabled()
 
+    /** Every source, enabled or not. */
+    suspend fun all(): List<Source> = dao.all()
+
     suspend fun byId(id: Long): Source? = dao.byId(id)
 
     suspend fun save(source: Source): Long = withContext(Dispatchers.IO) {

@@ -41,6 +41,10 @@ interface SourceDao {
     @Query("SELECT * FROM sources WHERE enabled = 1 ORDER BY id")
     suspend fun enabled(): List<Source>
 
+    /** Every source, enabled or not — what a settings file carries. */
+    @Query("SELECT * FROM sources ORDER BY id")
+    suspend fun all(): List<Source>
+
     @Query("SELECT * FROM sources WHERE id = :id")
     suspend fun byId(id: Long): Source?
 

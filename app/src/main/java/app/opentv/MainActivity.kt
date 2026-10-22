@@ -67,6 +67,7 @@ import app.opentv.ui.onboarding.AddSourceScreen
 import app.opentv.ui.player.PlayerScreen
 import app.opentv.ui.settings.AboutScreen
 import app.opentv.ui.settings.AppSettingsScreen
+import app.opentv.ui.settings.BackupScreen
 import app.opentv.ui.settings.EpgSettingsScreen
 import app.opentv.ui.settings.ParentalControlsScreen
 import app.opentv.ui.settings.ProfilesScreen
@@ -200,6 +201,7 @@ object Routes {
     const val PROFILES = "profiles"
     const val PARENTAL = "parental"
     const val SYNC = "sync"
+    const val BACKUP = "settings-backup"
     const val REC_SETTINGS = "recording-settings"
     const val ABOUT = "about"
     const val SERIES_DETAIL = "series/{seriesId}"
@@ -424,6 +426,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     onOpenDisplay = { navController.navigate(Routes.APP_SETTINGS) },
                     onOpenParental = { navController.navigate(Routes.PARENTAL) },
                     onOpenSync = { navController.navigate(Routes.SYNC) },
+                    onOpenBackup = { navController.navigate(Routes.BACKUP) },
                     onOpenRecordings = { navController.navigate(Routes.REC_SETTINGS) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onBack = { navController.popBackStack() },
@@ -432,6 +435,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
 
             composable(Routes.SYNC) {
                 SyncScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Routes.BACKUP) {
+                BackupScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Routes.REC_SETTINGS) {
