@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.4
+
+- **The source code link points at this build.** The About screen pointed at the upstream
+  repository — so an APK built from this fork was offering the corresponding source of somebody
+  else's code. The GPL asks that anyone given the binary can also get the source it was built
+  from, and that link was the one place the promise was made. It points here now, and so do the
+  bug tracker, the releases the updater checks, and the release notes of every APK, which name
+  the tag the build came from.
+- **The licence says what it means.** Every source file said "v3.0 or later"; the About screen
+  said "v3.0". Both say the same thing now, and the free-software notice the licence asks for
+  is on the About screen and in every set of release notes — along with where the complete
+  corresponding source is.
+- **This repository says what it is.** The README claimed the project was not a fork, which was
+  true of upstream and not of this. It names the upstream now, keeps the attribution, and spells
+  out what a fork that ships builds owes. `NOTICE` carries the attribution, the dependency
+  licences and the trademark note; `CONTRIBUTING` says what a contribution is licensed under
+  and what the header on a new file has to be.
+- **And the donations still go to the upstream maintainer**, who wrote the original. The app
+  says so now, under the QR code, rather than leaving you to work it out.
+
 ## 0.12.3
 
 - **The guide keeps up with the remote.** Moving down the channel list used to redraw every
