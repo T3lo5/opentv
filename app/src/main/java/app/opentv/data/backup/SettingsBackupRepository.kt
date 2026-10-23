@@ -83,6 +83,7 @@ class SettingsBackupRepository(
         recordPadEndMinutes = settings.recordPadEndMinutes.value,
         recordAutoSwitch = settings.recordAutoSwitch.value,
         livePauseEnabled = settings.livePauseEnabled.value,
+        audioDelayMs = settings.audioDelayMs.value,
         contentLive = settings.liveEnabled.value,
         contentMovies = settings.moviesEnabled.value,
         contentSeries = settings.seriesEnabled.value,
@@ -209,6 +210,7 @@ class SettingsBackupRepository(
         differs(preferences.recordPadEndMinutes, defaults.recordPadEndMinutes, current.recordPadEndMinutes)
         differs(preferences.recordAutoSwitch, defaults.recordAutoSwitch, current.recordAutoSwitch)
         differs(preferences.livePauseEnabled, defaults.livePauseEnabled, current.livePauseEnabled)
+        differs(preferences.audioDelayMs, defaults.audioDelayMs, current.audioDelayMs)
         differs(preferences.contentLive, defaults.contentLive, current.contentLive)
         differs(preferences.contentMovies, defaults.contentMovies, current.contentMovies)
         differs(preferences.contentSeries, defaults.contentSeries, current.contentSeries)
@@ -275,6 +277,9 @@ class SettingsBackupRepository(
         }
         if (preferences.livePauseEnabled != defaults.livePauseEnabled) {
             settings.setLivePauseEnabled(preferences.livePauseEnabled)
+        }
+        if (preferences.audioDelayMs != defaults.audioDelayMs) {
+            settings.setAudioDelayMs(preferences.audioDelayMs)
         }
         if (preferences.contentLive != defaults.contentLive) {
             settings.setLiveEnabled(preferences.contentLive)

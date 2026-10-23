@@ -129,6 +129,7 @@ data class BackupPreferences(
     val recordPadEndMinutes: Int = 5,
     val recordAutoSwitch: Boolean = true,
     val livePauseEnabled: Boolean = false,
+    val audioDelayMs: Long = 0L,
     val contentLive: Boolean = true,
     val contentMovies: Boolean = true,
     val contentSeries: Boolean = true,

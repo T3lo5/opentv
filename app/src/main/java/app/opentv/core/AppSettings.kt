@@ -297,6 +297,14 @@ class AppSettings private constructor(val context: Context) {
         _livePauseEnabled.value = enabled
     }
 
+    private val _audioDelayMs = MutableStateFlow(prefs.getLong(KEY_AUDIO_DELAY_MS, 0L).coerceIn(-5000L, 5000L))
+    val audioDelayMs: StateFlow<Long> = _audioDelayMs.asStateFlow()
+    fun setAudioDelayMs(value: Long) {
+        val clamped = value.coerceIn(-5000L, 5000L)
+        prefs.edit().putLong(KEY_AUDIO_DELAY_MS, clamped).apply()
+        _audioDelayMs.value = clamped
+    }
+
     // ---- Content types -----------------------------------------------------------------------
 
     /**
@@ -635,6 +643,7 @@ class AppSettings private constructor(val context: Context) {
         private const val KEY_PAD_END = "rec_pad_end_min"
         private const val KEY_REC_AUTOSWITCH = "rec_auto_switch"
         private const val KEY_LIVE_PAUSE = "live_pause_enabled"
+        private const val KEY_AUDIO_DELAY_MS = "audio_delay_ms"
         private const val KEY_STREAM_SETTINGS = "stream_settings"
 
         @Volatile private var instance: AppSettings? = null

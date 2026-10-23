@@ -86,6 +86,13 @@ import kotlinx.coroutines.withContext
  * exactly like a provider's login; the USB drive is addressed through a folder the user grants
  * with the system picker (Storage Access Framework), which needs no storage permission.
  */
+
+/**
+ * Where recordings are written: this box's internal storage, a NAS over SMB (Synology and the
+ * like), or a plugged-in USB / external drive. The NAS credentials live only on this device,
+ * exactly like a provider's login; the USB drive is addressed through a folder the user grants
+ * with the system picker (Storage Access Framework), which needs no storage permission.
+ */
 @Composable
 fun RecordingSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -98,6 +105,10 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
     var folder by remember { mutableStateOf(settings.smbFolder.value) }
     var user by remember { mutableStateOf(settings.smbUser.value) }
     var password by remember { mutableStateOf(settings.smbPassword.value) }
+    var nfsHost by remember { mutableStateOf(settings.nfsHost.value) }
+    var nfsExport by remember { mutableStateOf(settings.nfsExport.value) }
+    var nfsFolder by remember { mutableStateOf(settings.nfsFolder.value) }
+    var nfsMountPath by remember { mutableStateOf(settings.nfsMountPath.value) }
     var usbTree by remember { mutableStateOf(settings.usbTreeUri.value) }
     var usbLabel by remember { mutableStateOf(settings.usbFolderLabel.value) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -130,6 +141,7 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
 
     fun persist() {
         settings.setSmbConfig(host, share, folder, user, password)
+        settings.setNfsConfig(nfsHost, nfsExport, nfsFolder, nfsMountPath)
         // Don't commit USB as the destination unless a folder has actually been granted, so
         // leaving the screen without picking one can never strand recordings with nowhere to go.
         val safeTarget =
@@ -205,6 +217,12 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
             ) { target = AppSettings.RecordingTarget.SMB }
             Spacer(Modifier.height(8.dp))
             TargetRow(
+                label = "NFS",
+                subtitle = "Network File System",
+                selected = target == AppSettings.RecordingTarget.NFS,
+            ) { target = AppSettings.RecordingTarget.NFS }
+            Spacer(Modifier.height(8.dp))
+            TargetRow(
                 label = stringResource(R.string.recset_usb_label),
                 subtitle = stringResource(R.string.recset_usb_subtitle),
                 selected = target == AppSettings.RecordingTarget.USB,
@@ -245,6 +263,22 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 }
+            }
+        }
+
+        if (target == AppSettings.RecordingTarget.NFS) {
+            Spacer(Modifier.height(16.dp))
+            SectionCard("NFS Connection") {
+                Field("Host", nfsHost, "192.168.1.10") { nfsHost = it }
+                Field("Export path", nfsExport, "/volume1/video") { nfsExport = it }
+                Field("Folder", nfsFolder, "OpenTV") { nfsFolder = it }
+                Field("Mount path (optional)", nfsMountPath, "/mnt/nfs") { nfsMountPath = it }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "NFS recording requires the export to be mounted on the device. Mount path can be used if mounted elsewhere.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 

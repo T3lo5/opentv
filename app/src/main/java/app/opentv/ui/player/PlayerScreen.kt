@@ -67,6 +67,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -813,13 +814,19 @@ fun PlayerScreen(
                     ) {
                         Text(current.title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
                         Spacer(Modifier.height(12.dp))
+                        if (current.message.contains("Reconectando")) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(16.dp))
+                        }
                         Text(
                             current.message,
                             color = Color.White.copy(alpha = 0.85f),
                             textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(24.dp))
-                        Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
+                        if (!current.message.contains("Reconectando")) {
+                            Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
+                        }
                     }
                 }
             }
@@ -1010,8 +1017,17 @@ fun PlayerScreen(
                         panel = if (panel == Panel.SUBTITLES) Panel.NONE else Panel.SUBTITLES; interaction++
                     }
                     Spacer(Modifier.width(10.dp))
-                    BarChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio), panel == Panel.AUDIO) {
+                    BarChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio), panel == Panel.AUDIO || panel == Panel.AUDIO_SYNC) {
                         panel = if (panel == Panel.AUDIO) Panel.NONE else Panel.AUDIO; interaction++
+                    }
+                    if (isTelevision) {
+                        TextButton(onClick = { panel = if (panel == Panel.AUDIO_SYNC) Panel.NONE else Panel.AUDIO_SYNC; interaction++ }) {
+                            Text("Sync", color = Color.White)
+                        }
+                    } else {
+                        BarChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio), panel == Panel.AUDIO_SYNC) {
+                            panel = if (panel == Panel.AUDIO_SYNC) Panel.NONE else Panel.AUDIO_SYNC; interaction++
+                        }
                     }
                     if (variants.size > 1) {
                         Spacer(Modifier.width(10.dp))
@@ -1309,7 +1325,7 @@ private fun ChannelListRow(
     }
 }
 
-private enum class Panel { NONE, SUBTITLES, AUDIO, QUALITY, ASPECT }
+private enum class Panel { NONE, SUBTITLES, AUDIO, AUDIO_SYNC, QUALITY, ASPECT }
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -1334,6 +1350,7 @@ private fun OptionPanel(
     val options: List<Option> = when (panel) {
         Panel.SUBTITLES -> buildSubtitleOptions(controller, settings, tracks, offLabel, onDone)
         Panel.AUDIO -> buildAudioOptions(controller, tracks, onDone)
+        Panel.AUDIO_SYNC -> buildAudioSyncOptions(controller, settings, onDone)
         Panel.QUALITY -> variants.map { v ->
             Option(v.qualityLabel.ifEmpty { standardLabel }, v.id == currentId) { onTune(v); onDone() }
         }
@@ -1354,6 +1371,7 @@ private fun OptionPanel(
     val title = when (panel) {
         Panel.SUBTITLES -> stringResource(R.string.player_subtitles)
         Panel.AUDIO -> stringResource(R.string.player_audio)
+        Panel.AUDIO_SYNC -> "Audio Sync"
         Panel.QUALITY -> stringResource(R.string.player_quality)
         Panel.ASPECT -> stringResource(R.string.player_aspect_ratio_title)
         Panel.NONE -> ""
@@ -1438,6 +1456,31 @@ private fun buildAudioOptions(
         }
     }
     return list
+}
+
+private fun buildAudioSyncOptions(
+    controller: PlayerController,
+    settings: app.opentv.core.AppSettings,
+    onDone: () -> Unit,
+): List<Option> {
+    val current = settings.audioDelayMs.value
+    val options = mutableListOf<Option>()
+    listOf(-500L, -250L, -100L, -50L, 0L, 50L, 100L, 250L, 500L).forEach { delta ->
+        val value = current + delta
+        if (value >= -5000L && value <= 5000L) {
+            options += Option("${if (delta >= 0) "+" else ""}$delta ms (${if (value >= 0) "+" else ""}${value}ms)", false) {
+                settings.setAudioDelayMs(value)
+                controller.setAudioDelayMs(value)
+                onDone()
+            }
+        }
+    }
+    options += Option("Reset to 0", current == 0L) {
+        settings.setAudioDelayMs(0L)
+        controller.setAudioDelayMs(0L)
+        onDone()
+    }
+    return options
 }
 
 private fun trackLabel(label: String?, language: String?, index: Int): String {

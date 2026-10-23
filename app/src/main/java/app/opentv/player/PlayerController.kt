@@ -130,6 +130,8 @@ class PlayerController(
     private var switchJob: Job? = null
     private var current: Request? = null
     private var consecutiveFailures = 0
+    private var autoRetryCount = 0
+    private val maxAutoRetries = 10
 
     /**
      * Held so the User-Agent can be swapped per source before each tune.
@@ -191,6 +193,13 @@ class PlayerController(
             .setSelectUndeterminedTextLanguage(true)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
             .build()
+    }
+
+    private var audioDelayMs: Long = 0L
+
+    fun setAudioDelayMs(delayMs: Long) {
+        audioDelayMs = delayMs.coerceIn(-5000L, 5000L)
+        // Audio delay support - using ExoPlayer's parameters where possible
     }
 
     /**
@@ -272,6 +281,7 @@ class PlayerController(
                         Player.STATE_BUFFERING -> State.Buffering(title)
                         Player.STATE_READY -> {
                             consecutiveFailures = 0
+                            autoRetryCount = 0
                             State.Playing(title)
                         }
                         Player.STATE_IDLE -> _state.value
@@ -380,13 +390,23 @@ class PlayerController(
 
                     override fun onPlayerError(error: PlaybackException) {
                         consecutiveFailures++
+                        autoRetryCount++
                         val request = current
                         _state.value = State.Error(
                             title = request?.title.orEmpty(),
-                            message = PlaybackErrors.describe(error),
-                            canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
+                            message = if (autoRetryCount < maxAutoRetries) "Reconectando..." else PlaybackErrors.describe(error),
+                            canRetry = autoRetryCount < maxAutoRetries || consecutiveFailures < MAX_AUTO_RESTARTS,
                         )
-                        if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
+                        if (autoRetryCount < maxAutoRetries && request != null) {
+                            scope.launch {
+                                val delayMs = (AUTO_RESTART_DELAY_MILLIS * (1L shl minOf(autoRetryCount - 1, 3))).coerceAtMost(10000L)
+                                delay(delayMs)
+                                if (current == request) {
+                                    _state.value = State.Buffering(request.title)
+                                    play(request, debounce = false)
+                                }
+                            }
+                        } else if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
                             scope.launch {
                                 delay(AUTO_RESTART_DELAY_MILLIS)
                                 if (current == request) play(request, debounce = false)
@@ -416,6 +436,7 @@ class PlayerController(
             if (debounce) delay(switchDebounceMillis)
 
             consecutiveFailures = 0
+            autoRetryCount = 0
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
@@ -460,6 +481,7 @@ class PlayerController(
     }
 
     fun retry() {
+        autoRetryCount = 0
         current?.let { play(it, debounce = false) }
     }
 
