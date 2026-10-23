@@ -42,6 +42,18 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Blocking OkHttp calls wrapped in `withContext(Dispatchers.IO)`, matching [XtreamApi].
  */
+/**
+ * A programme the portal has recorded, and the id its archive files it under.
+ *
+ * The id is what the archive's link is built from; the times are what the guide shows.
+ */
+data class StalkerArchiveProgramme(
+    val id: String,
+    val title: String,
+    val startUtcMillis: Long,
+    val endUtcMillis: Long,
+)
+
 class StalkerApi(
     private val http: OkHttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
@@ -108,16 +120,60 @@ class StalkerApi(
         }
     }
 
-    /** Mint the real, short-lived stream URL for a channel's [cmd]. Null if the portal declines. */
-    suspend fun createLink(source: Source, cmd: String): String? = withContext(Dispatchers.IO) {
-        val js = callRetrying(source, type = "itv", action = "create_link") { b ->
-            b.addQueryParameter("cmd", cmd)
-            b.addQueryParameter("forced_storage", "0")
-            b.addQueryParameter("disable_ad", "0")
+    /**
+     * Mint the real, short-lived stream URL for a channel's [cmd]. Null if the portal declines.
+     *
+     * The archive is a different service on the same portal, so it is asked for under its own
+     * type: a live channel is an `itv` link, a recorded programme is a `tv_archive` one.
+     */
+    suspend fun createLink(source: Source, cmd: String, type: String = "itv"): String? =
+        withContext(Dispatchers.IO) {
+            val js = callRetrying(source, type = type, action = "create_link") { b ->
+                b.addQueryParameter("cmd", cmd)
+                b.addQueryParameter("forced_storage", "0")
+                b.addQueryParameter("disable_ad", "0")
+            }
+            val linkCmd = (js as? JsonObject)?.str("cmd") ?: return@withContext null
+            stripCmdPrefix(linkCmd)
         }
-        val linkCmd = (js as? JsonObject)?.str("cmd") ?: return@withContext null
-        stripCmdPrefix(linkCmd)
+
+    /**
+     * The archive's guide: what the portal still holds, per channel.
+     *
+     * The period is in days, and the portal keeps what its storage keeps — asking for more
+     * than the portal has is not an error, it just answers with less.
+     */
+    suspend fun archiveProgrammes(
+        source: Source,
+        periodDays: Int = 3,
+    ): Map<String, List<StalkerArchiveProgramme>> = withContext(Dispatchers.IO) {
+        val js = callRetrying(source, type = "itv", action = "get_epg_info") { b ->
+            b.addQueryParameter("period", periodDays.coerceAtLeast(1).toString())
+        }
+        val data = (js as? JsonObject)?.get("data") as? JsonObject ?: return@withContext emptyMap()
+        data.entries.mapNotNull { (channelId, programmes) ->
+            val list = programmes as? JsonArray ?: return@mapNotNull null
+            channelId to list.mapNotNull { element ->
+                val o = element as? JsonObject ?: return@mapNotNull null
+                val id = o.str("id") ?: return@mapNotNull null
+                StalkerArchiveProgramme(
+                    id = id,
+                    title = o.str("name").orEmpty(),
+                    startUtcMillis = o.str("start_timestamp")?.toDoubleOrNull()?.times(1000)?.toLong() ?: 0L,
+                    endUtcMillis = o.str("stop_timestamp")?.toDoubleOrNull()?.times(1000)?.toLong() ?: 0L,
+                )
+            }
+        }.toMap()
     }
+
+    /**
+     * The link to a recorded programme, from the id the archive files it under.
+     *
+     * The cmd names the storage the portal hands out first ("auto") and the recorded file
+     * ("/media/<id>.mpg"); the portal answers with a URL that seeks by start and duration.
+     */
+    suspend fun createArchiveLink(source: Source, programmeId: String): String? =
+        createLink(source, "auto /media/$programmeId.mpg", type = "tv_archive")
 
     // ---- Session / handshake -----------------------------------------------------------------
 
