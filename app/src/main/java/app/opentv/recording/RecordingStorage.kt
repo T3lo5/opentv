@@ -20,16 +20,12 @@ import java.io.OutputStream
  * small surface so the engine, library and playback don't care whether a recording lives on the
  * box's internal storage, on a NAS over SMB, or on a plugged-in USB / external drive.
  *
- * ## Three shapes of locator
+ * ## Four shapes of locator
  * A recording's `filePath` (its stored locator) is one of:
  *  - an absolute filesystem path — an INTERNAL recording, played back via a `file://` URI;
  *  - an `smb://host/share/…` locator — a NAS recording, read back over SMB;
+ *  - an `nfs://host/export/path` or local mounted path under the configured mount — NFS recording;
  *  - a `content://…` document URI — a USB recording written through the Storage Access Framework.
- *
- * USB is special because SAF only assigns a document's `content://` URI when the file is actually
- * created. So a USB recording is planned with a [USB_PLACEHOLDER_PREFIX]`filename` marker; when the
- * capture opens its sink the document is created, and the sink reports the real `content://` URI
- * back (via [Sink.resolvedLocator]) for the caller to persist onto the row.
  */
 object RecordingStorage {
 
@@ -59,6 +55,21 @@ object RecordingStorage {
         password = settings.smbPassword.value,
     )
 
+    /** NFS config from settings. */
+    data class NfsConfig(
+        val host: String,
+        val exportPath: String,
+        val folder: String,
+        val mountPath: String,
+    )
+
+    fun nfsConfig(settings: AppSettings): NfsConfig = NfsConfig(
+        host = settings.nfsHost.value,
+        exportPath = settings.nfsExport.value,
+        folder = settings.nfsFolder.value,
+        mountPath = settings.nfsMountPath.value,
+    )
+
     /** Internal recordings dir on the device's own (app-private) external storage — no permission needed. */
     fun internalDir(context: Context): File =
         File(context.getExternalFilesDir(null), "recordings").apply { mkdirs() }
@@ -71,6 +82,20 @@ object RecordingStorage {
         when (settings.recordingTarget.value) {
             AppSettings.RecordingTarget.SMB ->
                 SmbClient.locator(smbConfig(settings), filename)
+            AppSettings.RecordingTarget.NFS -> {
+                val cfg = nfsConfig(settings)
+                if (cfg.mountPath.isNotBlank()) {
+                    val base = File(cfg.mountPath.trimEnd('/'))
+                    val dir = if (cfg.folder.isBlank()) base else File(base, cfg.folder.trim('/'))
+                    dir.mkdirs()
+                    File(dir, filename).absolutePath
+                } else if (cfg.host.isNotBlank() && cfg.exportPath.isNotBlank()) {
+                    val path = if (cfg.folder.isBlank()) cfg.exportPath.trimEnd('/') else "${cfg.exportPath.trimEnd('/')}/${cfg.folder.trim('/')}"
+                    "nfs://${cfg.host}$path/$filename"
+                } else {
+                    File(internalDir(context), filename).absolutePath
+                }
+            }
             AppSettings.RecordingTarget.USB ->
                 // The real content:// URI isn't known until the SAF document is created at capture
                 // time; carry the intended filename in a placeholder until then.
@@ -95,6 +120,12 @@ object RecordingStorage {
         SmbClient.isSmb(locator) -> {
             val handle = SmbClient.openForWrite(smbConfig(settings), locator)
             Sink(handle.output) { handle.close() }
+        }
+        isNfs(locator) -> {
+            val file = File(locator)
+            file.parentFile?.mkdirs()
+            val out = FileOutputStream(file)
+            Sink(out) { runCatching { out.close() } }
         }
         isUsbPlaceholder(locator) ->
             openUsbSink(context, settings, locator.removePrefix(USB_PLACEHOLDER_PREFIX))
@@ -141,6 +172,7 @@ object RecordingStorage {
     fun delete(context: Context, settings: AppSettings, locator: String) {
         when {
             SmbClient.isSmb(locator) -> runCatching { SmbClient.delete(smbConfig(settings), locator) }
+            isNfs(locator) -> runCatching { File(locator).delete() }
             isContent(locator) ->
                 runCatching { DocumentFile.fromSingleUri(context, Uri.parse(locator))?.delete() }
             isUsbPlaceholder(locator) -> Unit // never created — nothing on disk to remove
@@ -149,12 +181,14 @@ object RecordingStorage {
     }
 
     /**
-     * Current on-disk size, or -1 when it can't be cheaply known (SMB / USB — the DB tracks it
-     * instead).
+     * Current on-disk size, or -1 when it can't be cheaply known.
      */
     fun sizeOf(locator: String): Long =
-        if (SmbClient.isSmb(locator) || isContent(locator) || isUsbPlaceholder(locator)) -1L
-        else File(locator).length()
+        if (SmbClient.isSmb(locator) || isContent(locator) || isUsbPlaceholder(locator) || locator.startsWith("nfs://")) -1L
+        else runCatching { File(locator).length() }.getOrDefault(-1L)
+
+    fun isNfs(locator: String): Boolean = locator.startsWith("nfs://") || (locator.startsWith("/") && (locator.contains("/mnt/") || locator.contains("nfs")))
+    private fun isNfsPath(locator: String): Boolean = locator.startsWith("nfs://") || (locator.startsWith("/") && (locator.contains("/mnt/") || locator.contains("nfs")))
 
     /** A filesystem-safe recording filename: `Channel - 2026-08-02 1830.ts`. */
     fun fileNameFor(channelName: String, title: String, startMillis: Long): String {

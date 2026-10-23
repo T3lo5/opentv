@@ -5,7 +5,11 @@
  */
 package app.opentv.ui.onboarding
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -124,6 +129,19 @@ fun AddSourceScreen(
     var showAdvanced by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
     var timezone by remember(existing?.id) { mutableStateOf(existing?.timezone ?: "") }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val contentResolver = context.contentResolver
+                val takeFlags: Int = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (_: Exception) {}
+            url = uri.toString()
+        }
+    }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
     // are preserved; a fresh add starts from a blank Source (id 0, so save() inserts).
@@ -239,7 +257,16 @@ fun AddSourceScreen(
                         },
                     )
                 },
-                trailingIcon = { PasteButton { url += it } },
+                trailingIcon = {
+                    Row {
+                        if (kind == SourceKind.M3U) {
+                            IconButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = "Local file")
+                            }
+                        }
+                        PasteButton { url += it }
+                    }
+                },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),

@@ -5,7 +5,11 @@
  */
 package app.opentv.data.repo
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
+import java.io.File
+import java.io.InputStream
 import app.opentv.core.AppSettings
 import app.opentv.data.db.CategoryDao
 import app.opentv.data.db.ChannelDao
@@ -118,6 +122,7 @@ internal fun collapseMovieVariants(movies: List<Movie>): List<MovieVariantGroup>
  * merges rather than wipes and carries favourites, hidden flags and manual ordering across.
  */
 class CatalogRepository(
+    private val context: Context,
     private val sourceDao: SourceDao,
     private val channelDao: ChannelDao,
     private val categoryDao: CategoryDao,
@@ -746,18 +751,44 @@ class CatalogRepository(
     }
 
     private suspend fun syncM3u(source: Source, nowUtcMillis: Long): SyncResult {
-        val request = Request.Builder()
-            .url(source.url)
-            .header("User-Agent", source.userAgent)
-            .build()
-
-        val parsed = http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                return SyncResult.Failed("Playlist download failed (HTTP ${response.code}).", null)
+        val parsed = if (source.url.startsWith("file://") || source.url.startsWith("content://") || source.url.startsWith("/")) {
+            val stream = try {
+                when {
+                    source.url.startsWith("content://") -> {
+                        val uri = android.net.Uri.parse(source.url)
+                        context.contentResolver.openInputStream(uri)
+                    }
+                    source.url.startsWith("file://") -> {
+                        val uri = android.net.Uri.parse(source.url)
+                        if (uri.scheme == "file") {
+                            File(uri.path ?: source.url.removePrefix("file://")).inputStream()
+                        } else {
+                            context.contentResolver.openInputStream(uri)
+                        }
+                    }
+                    else -> {
+                        File(source.url).inputStream()
+                    }
+                }
+            } catch (e: Exception) {
+                return SyncResult.Failed("Could not open local file: ${e.message}", null)
             }
-            val stream = response.body?.byteStream()
-                ?: return SyncResult.Failed("The playlist was empty.", null)
-            M3uParser.parse(stream, source.id)
+            stream?.use { M3uParser.parse(it, source.id) }
+                ?: return SyncResult.Failed("The playlist file was empty.", null)
+        } else {
+            val request = Request.Builder()
+                .url(source.url)
+                .header("User-Agent", source.userAgent)
+                .build()
+
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return SyncResult.Failed("Playlist download failed (HTTP ${response.code}).", null)
+                }
+                val stream = response.body?.byteStream()
+                    ?: return SyncResult.Failed("The playlist was empty.", null)
+                M3uParser.parse(stream, source.id)
+            }
         }
 
         if (parsed.channels.isEmpty()) {

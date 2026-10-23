@@ -418,7 +418,7 @@ class AppSettings private constructor(val context: Context) {
      * USB / external drive addressed through the Storage Access Framework (a granted tree URI —
      * the only way to write removable storage on modern Android without a raw filesystem path).
      */
-    enum class RecordingTarget { INTERNAL, SMB, USB }
+    enum class RecordingTarget { INTERNAL, SMB, NFS, USB }
 
     private val _recordingTarget = MutableStateFlow(readRecordingTarget())
     val recordingTarget: StateFlow<RecordingTarget> = _recordingTarget.asStateFlow()
@@ -480,6 +480,29 @@ class AppSettings private constructor(val context: Context) {
         _smbFolder.value = folder.trim()
         _smbUser.value = user
         _smbPassword.value = password
+    }
+
+    /** NFS mount settings. */
+    private val _nfsHost = MutableStateFlow(prefs.getString(KEY_NFS_HOST, "").orEmpty())
+    val nfsHost: StateFlow<String> = _nfsHost.asStateFlow()
+    private val _nfsExport = MutableStateFlow(prefs.getString(KEY_NFS_EXPORT, "").orEmpty())
+    val nfsExport: StateFlow<String> = _nfsExport.asStateFlow()
+    private val _nfsFolder = MutableStateFlow(prefs.getString(KEY_NFS_FOLDER, "OpenTV").orEmpty())
+    val nfsFolder: StateFlow<String> = _nfsFolder.asStateFlow()
+    private val _nfsMountPath = MutableStateFlow(prefs.getString(KEY_NFS_MOUNT, "").orEmpty())
+    val nfsMountPath: StateFlow<String> = _nfsMountPath.asStateFlow()
+
+    fun setNfsConfig(host: String, exportPath: String, folder: String, mountPath: String) {
+        prefs.edit()
+            .putString(KEY_NFS_HOST, host.trim())
+            .putString(KEY_NFS_EXPORT, exportPath.trim())
+            .putString(KEY_NFS_FOLDER, folder.trim())
+            .putString(KEY_NFS_MOUNT, mountPath.trim())
+            .apply()
+        _nfsHost.value = host.trim()
+        _nfsExport.value = exportPath.trim()
+        _nfsFolder.value = folder.trim()
+        _nfsMountPath.value = mountPath.trim()
     }
 
     private fun readRecordingTarget(): RecordingTarget =
@@ -592,6 +615,10 @@ class AppSettings private constructor(val context: Context) {
             context.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
                 .getString(KEY_LANGUAGE, "").orEmpty()
         private const val KEY_REC_TARGET = "recording_target"
+        private const val KEY_NFS_HOST = "nfs_host"
+        private const val KEY_NFS_EXPORT = "nfs_export"
+        private const val KEY_NFS_FOLDER = "nfs_folder"
+        private const val KEY_NFS_MOUNT = "nfs_mount_path"
         private const val KEY_SMB_HOST = "smb_host"
         private const val KEY_SMB_SHARE = "smb_share"
         private const val KEY_SMB_FOLDER = "smb_folder"

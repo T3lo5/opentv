@@ -89,6 +89,7 @@ object ServiceLocator {
 
         val catalogRepository: CatalogRepository by lazy {
             CatalogRepository(
+                context = appContext,
                 sourceDao = database.sources(),
                 channelDao = database.channels(),
                 categoryDao = database.categories(),

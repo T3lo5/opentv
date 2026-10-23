@@ -699,7 +699,11 @@ fun PlayerScreen(
                             true
                         }
                     }
-                    else -> { reveal(); true }
+                    // Don't swallow unknown keys - let them propagate
+                    else -> {
+                        reveal()
+                        false
+                    }
                 }
             }
             .focusRequester(rootFocus)
