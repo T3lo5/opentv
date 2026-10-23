@@ -281,6 +281,8 @@ fun PlayerScreen(
     val listFocus = remember { FocusRequester() }
     val guideFocus = remember { FocusRequester() }
     val catchupFocus = remember { FocusRequester() }
+    var channelOsdVisible by remember { mutableStateOf(false) }
+    var channelOsdChannelId by remember { mutableStateOf<Long?>(null) }
 
     // The channel list you were browsing, for channel up/down and the in-player list. Snapshotted
     // on entry so it doesn't shift under you mid-session.
@@ -329,7 +331,15 @@ fun PlayerScreen(
         if (queue.isEmpty()) return
         val cur = queue.indexOfFirst { it.id == currentId }.let { if (it < 0) 0 else it }
         val next = (cur + delta).coerceIn(0, queue.size - 1)
-        if (next != cur) playChannelId(queue[next].id)
+        if (next != cur) {
+            playChannelId(queue[next].id)
+            channelOsdVisible = true
+            channelOsdChannelId = queue[next].id
+            scope.launch {
+                kotlinx.coroutines.delay(2500)
+                if (channelOsdChannelId == queue[next].id) channelOsdVisible = false
+            }
+        }
     }
 
     fun toggleRecord() {
@@ -352,6 +362,12 @@ fun PlayerScreen(
         val channel = graph.catalogRepository.channel(id) ?: return@LaunchedEffect
         variants = graph.catalogRepository.variants(channel)
         tuneTo(variants.firstOrNull { it.id == channel.id } ?: channel)
+        channelOsdVisible = true
+        channelOsdChannelId = id
+        scope.launch {
+            kotlinx.coroutines.delay(2500)
+            if (channelOsdChannelId == id) channelOsdVisible = false
+        }
     }
 
     // On a television, the box takes the screen away when the set is left alone — that is the
@@ -740,6 +756,36 @@ fun PlayerScreen(
                     .padding(horizontal = 28.dp, vertical = 16.dp),
             ) {
                 Text(numberEntry, color = Color.White, style = MaterialTheme.typography.displaySmall)
+            }
+        }
+
+        // Channel OSD when zapping
+        if (channelOsdVisible && !inPip) {
+            val osdChannel = variants.firstOrNull { it.id == channelOsdChannelId } ?: variants.firstOrNull { it.id == currentId }
+            osdChannel?.let { ch ->
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 48.dp, top = 48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black.copy(alpha = 0.85f))
+                        .padding(horizontal = 32.dp, vertical = 20.dp),
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ch.number?.let { num ->
+                                Text("$num  ", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                            }
+                            Text(ch.shownName, color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                        }
+                        val nowProg = ch.catchupSource?.let { null } // placeholder
+                        Text(
+                            "Now playing",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                }
             }
         }
 
