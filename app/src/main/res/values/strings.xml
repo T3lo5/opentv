@@ -563,6 +563,21 @@
     <string name="rec_switch_channel_desc">Warns before switching the screen to a scheduled recording</string>
 
     <!-- Metadata / TMDB back-fill -->
+    <!-- ============================ Per-stream overrides ============================ -->
+    <string name="settings_stream_settings_title">Per-stream overrides</string>
+    <string name="settings_stream_settings_note">Pin a stream URL (or a URL prefix) to its own buffer preset and decoder preference, so a twitchy stream gets its own tuning without changing the global defaults. Matching is `startsWith`, so one entry covers a whole provider.</string>
+    <string name="settings_stream_overrides_title">Stream overrides</string>
+    <string name="settings_stream_none">No stream overrides yet. Add one below.</string>
+    <string name="settings_stream_url_label">Stream URL or prefix</string>
+    <string name="settings_stream_buffer_label">Buffer preset</string>
+    <string name="settings_stream_decoder_label">Decoder preference</string>
+    <string name="settings_stream_inherit_global">Inherit global</string>
+    <string name="settings_stream_add">Add override</string>
+    <string name="settings_stream_update">Update override</string>
+    <string name="settings_stream_removed">Stream override removed</string>
+    <string name="settings_stream_delete">Delete override</string>
+    <string name="settings_decoder_auto">Auto</string>
+    <string name="settings_decoder_software_first">Software first</string>
     <string name="settings_section_metadata">Metadata</string>
     <string name="settings_tmdb_note">Paste your own free TMDB API key to fill in missing posters, backdrops, cast and synopses on Movies &amp; Shows. It stays on this device.</string>
     <string name="settings_tmdb_key_label">TMDB API key</string>

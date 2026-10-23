@@ -97,6 +97,7 @@ import java.util.Locale
 @androidx.compose.runtime.Stable
 class VerticalListFocus {
     private var keys: List<Any> = emptyList()
+    private var keyToIndex = emptyMap<Any, Int>()
     private val requesters = mutableMapOf<Any, FocusRequester>()
     private var focusedKey: Any? = null
     private var scope: CoroutineScope? = null
@@ -104,7 +105,10 @@ class VerticalListFocus {
     fun attach(scope: CoroutineScope) { this.scope = scope }
 
     /** The list the controller walks. */
-    fun update(keys: List<Any>) { this.keys = keys }
+    fun update(keys: List<Any>) {
+        this.keys = keys
+        keyToIndex = keys.withIndex().associate { it.value to it.index }
+    }
 
     /** The row the focus is on, by key. */
     fun onRowFocused(key: Any) { focusedKey = key }
@@ -145,7 +149,7 @@ class VerticalListFocus {
             else -> return false
         }
         val key = focusedKey ?: return false
-        val index = keys.indexOf(key)
+        val index = keyToIndex[key] ?: return false
         if (index < 0) return false
         val target = keys.getOrNull(index + delta) ?: return false
         return focusKey(target)

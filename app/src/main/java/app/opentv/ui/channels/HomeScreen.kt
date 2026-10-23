@@ -322,6 +322,7 @@ fun HomeScreen(
     // The provider's user agent, for the request headers. Kept per source: a lookup for
     // every channel the highlight passes over is a database query for every arrow press.
     val sourceUserAgents = remember { HashMap<Long, String>() }
+    val streamSettings by settings.streamSettings.collectAsState()
     LaunchedEffect(highlightedRow?.key, previewEnabled, screenResumed, recordingActive) {
         val row = highlightedRow
         if (!previewEnabled || !screenResumed || recordingActive || row == null) {
@@ -333,12 +334,15 @@ fun HomeScreen(
             ?: graph.sourceRepository.byId(channel.sourceId)?.userAgent
                 ?.also { sourceUserAgents[channel.sourceId] = it }
             ?: "OpenTV/0.1 (Android)"
+        val streamSetting = streamSettings.firstOrNull { it.url.isNotBlank() && channel.streamUrl.startsWith(it.url) }
         previewController.play(
             PlayerController.Request(
                 url = channel.streamUrl,
                 title = channel.shownName,
                 userAgent = userAgent,
                 isLive = true,
+                bufferPresetOverride = streamSetting?.bufferPreset,
+                decoderPreferenceOverride = streamSetting?.decoderPreference,
             ),
             debounce = true,
         )
@@ -528,7 +532,7 @@ fun HomeScreen(
                     ChannelList(
                         rows = rows,
                         nowMillis = nowMillis,
-                        selectedKey = highlightedRow?.key,
+                        selectedKey = selectedRow?.key,
                         onSelectRow = { row -> channelMenu = row },
                         onFocusRow = onFocusChannel,
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
@@ -542,7 +546,7 @@ fun HomeScreen(
                         windowStartMillis = windowStart,
                         nowMillis = nowMillis,
                         dayOffset = guideDayOffset,
-                        selectedKey = highlightedRow?.key,
+                        selectedKey = selectedRow?.key,
                         // OK on a channel opens its menu: Watch, Record now, Schedule a later show,
                         // Record series. The preview already follows the highlight as you browse.
                         onSelectRow = { row -> channelMenu = row },

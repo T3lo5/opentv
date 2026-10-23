@@ -299,12 +299,15 @@ fun PlayerScreen(
             val source = graph.sourceRepository.byId(channel.sourceId)
             // Xtream/M3U carry a ready URL; a Stalker channel's URL is minted here from its cmd.
             val url = graph.catalogRepository.resolvePlaybackUrl(channel, source)
+            val streamSetting = settings.streamSettings.value.firstOrNull { it.url.isNotBlank() && url.startsWith(it.url) }
             controller.play(
                 PlayerController.Request(
                     url = url,
                     title = channel.shownName,
                     userAgent = source?.userAgent ?: "OpenTV/0.1 (Android)",
                     isLive = true,
+                    bufferPresetOverride = streamSetting?.bufferPreset,
+                    decoderPreferenceOverride = streamSetting?.decoderPreference,
                 ),
                 debounce = false,
             )

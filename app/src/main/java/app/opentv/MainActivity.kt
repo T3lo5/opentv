@@ -76,6 +76,7 @@ import app.opentv.ui.settings.StremioAddonsScreen
 import app.opentv.ui.settings.RecordingSettingsScreen
 import app.opentv.ui.settings.SyncScreen
 import app.opentv.ui.settings.SettingsHubScreen
+import app.opentv.ui.settings.StreamSettingsScreen
 import app.opentv.ui.settings.WebManagerScreen
 import app.opentv.ui.theme.OpenTvTheme
 import app.opentv.ui.vod.MovieDetailScreen
@@ -203,6 +204,7 @@ object Routes {
     const val SYNC = "sync"
     const val BACKUP = "settings-backup"
     const val REC_SETTINGS = "recording-settings"
+    const val STREAM_SETTINGS = "stream-settings"
     const val ABOUT = "about"
     const val SERIES_DETAIL = "series/{seriesId}"
     const val MOVIE_DETAIL = "movie/{movieId}"
@@ -428,6 +430,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     onOpenSync = { navController.navigate(Routes.SYNC) },
                     onOpenBackup = { navController.navigate(Routes.BACKUP) },
                     onOpenRecordings = { navController.navigate(Routes.REC_SETTINGS) },
+                    onOpenStreamSettings = { navController.navigate(Routes.STREAM_SETTINGS) },
                     onOpenAbout = { navController.navigate(Routes.ABOUT) },
                     onBack = { navController.popBackStack() },
                 )
@@ -480,6 +483,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
 
             composable(Routes.APP_SETTINGS) {
                 AppSettingsScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Routes.STREAM_SETTINGS) {
+                StreamSettingsScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Routes.PLAYER) { entry ->

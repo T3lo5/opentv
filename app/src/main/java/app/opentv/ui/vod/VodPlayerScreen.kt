@@ -127,6 +127,7 @@ fun VodPlayerScreen(
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    val streamSettings by settings.streamSettings.collectAsState()
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
     // little differently in the transport: the "length" is how much has been recorded so far, which
@@ -226,6 +227,7 @@ fun VodPlayerScreen(
     LaunchedEffect(mediaKey, restartToken) {
         val resumeFrom = graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
             ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
+        val streamSetting = streamSettings.firstOrNull { it.url.isNotBlank() && streamUrl.startsWith(it.url) }
         controller.play(
             PlayerController.Request(
                 url = streamUrl,
@@ -233,6 +235,8 @@ fun VodPlayerScreen(
                 userAgent = userAgent,
                 startPositionMillis = resumeFrom,
                 isLive = false,
+                bufferPresetOverride = streamSetting?.bufferPreset,
+                decoderPreferenceOverride = streamSetting?.decoderPreference,
             ),
             debounce = false,
         )

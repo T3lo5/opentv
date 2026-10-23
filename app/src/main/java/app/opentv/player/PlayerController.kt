@@ -53,7 +53,7 @@ import okhttp3.OkHttpClient
  */
 @OptIn(UnstableApi::class)
 class PlayerController(
-    context: Context,
+    val context: Context,
     private val scope: CoroutineScope,
     httpClient: OkHttpClient,
     subtitlesEnabled: Boolean = true,
@@ -114,6 +114,10 @@ class PlayerController(
         /** Live streams are never resumed; VOD is. */
         val startPositionMillis: Long = 0L,
         val isLive: Boolean = true,
+        /** Override the global buffer preset for this stream only. Null = inherit global. */
+        val bufferPresetOverride: BufferPreset? = null,
+        /** Override the global decoder preference for this stream only. Null = inherit global. */
+        val decoderPreferenceOverride: DecoderPreference? = null,
     )
 
     private val _state = MutableStateFlow<State>(State.Idle)
@@ -293,8 +297,108 @@ class PlayerController(
                         }
                     }
                 }
-            })
+        })
+    }
+
+    /** The override-applied player, non-null when a stream override is active. */
+    private var overridePlayer: ExoPlayer? = null
+
+    /** The player to use right now: override-applied if active, otherwise the default. */
+    private val activePlayer: ExoPlayer
+        get() = overridePlayer ?: player
+
+    /**
+     * Recreates the underlying [ExoPlayer] with per-stream overrides applied, so a twitchy
+     * stream can get its own buffer preset and decoder without changing the global defaults.
+     */
+    private fun recreatePlayerWithOverrides(
+        bufferPreset: BufferPreset?,
+        decoderPreference: DecoderPreference?,
+    ) {
+        val newLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                if (preview || dvr || liveRecording) PREVIEW_MIN_BUFFER_MILLIS
+                else bufferPreset?.minBufferMillis ?: playbackBuffer.minBufferMillis,
+                when {
+                    preview -> PREVIEW_MAX_BUFFER_MILLIS
+                    dvr -> DVR_MAX_BUFFER_MILLIS
+                    liveRecording -> LIVE_REC_MAX_BUFFER_MILLIS
+                    else -> bufferPreset?.maxBufferMillis ?: playbackBuffer.maxBufferMillis
+                },
+                when {
+                    preview -> PREVIEW_BUFFER_FOR_PLAYBACK_MILLIS
+                    liveRecording -> LIVE_REC_BUFFER_FOR_PLAYBACK_MILLIS
+                    else -> bufferPreset?.playbackBufferMillis ?: playbackBuffer.playbackBufferMillis
+                },
+                when {
+                    preview -> PREVIEW_BUFFER_AFTER_REBUFFER_MILLIS
+                    liveRecording -> LIVE_REC_BUFFER_AFTER_REBUFFER_MILLIS
+                    else -> bufferPreset?.rebufferMillis ?: playbackBuffer.rebufferMillis
+                },
+            )
+            .apply { if (dvr) setBackBuffer(DVR_BACK_BUFFER_MILLIS, true) }
+            .build()
+
+        val newRenderersFactory = if (decoderPreference == DecoderPreference.SOFTWARE_FIRST) {
+            DefaultRenderersFactory(context)
+                .setMediaCodecSelector(SoftwareFirstCodecSelector())
+                .setEnableDecoderFallback(true)
+        } else {
+            null
         }
+
+        val newPlayer = ExoPlayer.Builder(context)
+            .setSeekBackIncrementMs(SEEK_INCREMENT_MILLIS)
+            .setSeekForwardIncrementMs(SEEK_INCREMENT_MILLIS)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(dataSourceFactory)
+                    .setLoadErrorHandlingPolicy(loadErrorPolicy),
+            )
+            .setTrackSelector(trackSelector)
+            .apply { newRenderersFactory?.let { setRenderersFactory(it) } }
+            .setLoadControl(newLoadControl)
+            .build()
+            .apply {
+                addListener(object : Player.Listener {
+                    override fun onTracksChanged(tracks: Tracks) {
+                        _tracks.value = tracks
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        val title = current?.title.orEmpty()
+                        _state.value = when (playbackState) {
+                            Player.STATE_BUFFERING -> State.Buffering(title)
+                            Player.STATE_READY -> {
+                                consecutiveFailures = 0
+                                State.Playing(title)
+                            }
+                            Player.STATE_IDLE -> _state.value
+                            Player.STATE_ENDED -> State.Idle
+                            else -> _state.value
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        consecutiveFailures++
+                        val request = current
+                        _state.value = State.Error(
+                            title = request?.title.orEmpty(),
+                            message = PlaybackErrors.describe(error),
+                            canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
+                        )
+                        if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
+                            scope.launch {
+                                delay(AUTO_RESTART_DELAY_MILLIS)
+                                if (current == request) play(request, debounce = false)
+                            }
+                        }
+                    }
+                })
+            }
+
+        overridePlayer?.release()
+        overridePlayer = newPlayer
+    }
 
     /**
      * Switches playback.
@@ -315,6 +419,18 @@ class PlayerController(
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
+            // Apply per-stream overrides before tuning: a twitchy stream gets its own
+            // buffer preset and/or decoder without changing the global defaults.
+            if (request.bufferPresetOverride != null || request.decoderPreferenceOverride != null) {
+                recreatePlayerWithOverrides(
+                    request.bufferPresetOverride,
+                    request.decoderPreferenceOverride,
+                )
+            } else {
+                overridePlayer?.release()
+                overridePlayer = null
+            }
+
             val mediaItem = MediaItem.Builder()
                 .setUri(request.url)
                 .apply {
@@ -329,7 +445,7 @@ class PlayerController(
                 }
                 .build()
 
-            with(player) {
+            with(activePlayer) {
                 // stop() rather than release(): keeps the codec and the surface alive.
                 stop()
                 clearMediaItems()
@@ -364,16 +480,16 @@ class PlayerController(
         } else {
             // Nothing to select yet — allow the renderer so a track that arrives later can be
             // picked up, and re-assert once tracks change.
-            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                .build()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
         }
     }
 
     /** Force a specific audio or text track on (used by the in-player pickers). */
     fun selectTrack(group: Tracks.Group, trackIndex: Int) {
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        activePlayer.trackSelectionParameters = activePlayer.trackSelectionParameters.buildUpon()
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
             .setTrackTypeDisabled(group.type, false)
             .build()
@@ -381,21 +497,21 @@ class PlayerController(
 
     /** Turn subtitles off entirely. */
     fun disableText() {
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        activePlayer.trackSelectionParameters = activePlayer.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
     }
 
     fun seekBackward() {
-        if (player.isCurrentMediaItemSeekable) player.seekBack()
+        if (activePlayer.isCurrentMediaItemSeekable) activePlayer.seekBack()
     }
 
     fun seekForward() {
-        if (player.isCurrentMediaItemSeekable) player.seekForward()
+        if (activePlayer.isCurrentMediaItemSeekable) activePlayer.seekForward()
     }
 
-    val isSeekable: Boolean get() = player.isCurrentMediaItemSeekable
+    val isSeekable: Boolean get() = activePlayer.isCurrentMediaItemSeekable
 
     /**
      * How far back live TV can be rewound: the retained back buffer, zero when the shallow
@@ -416,7 +532,7 @@ class PlayerController(
      * minus the target offset — which is where the picture belongs.
      */
     fun seekToLive() {
-        player.seekToDefaultPosition()
+        activePlayer.seekToDefaultPosition()
     }
 
     private fun firstSupportedIndex(group: Tracks.Group): Int {
@@ -427,13 +543,14 @@ class PlayerController(
     fun stop() {
         switchJob?.cancel()
         current = null
-        player.stop()
-        player.clearMediaItems()
+        activePlayer.stop()
+        activePlayer.clearMediaItems()
         _state.value = State.Idle
     }
 
     fun release() {
         switchJob?.cancel()
+        overridePlayer?.release()
         player.release()
     }
 
@@ -484,7 +601,7 @@ class PlayerController(
         const val PREVIEW_MAX_BUFFER_MILLIS = 15_000
         const val PREVIEW_BUFFER_FOR_PLAYBACK_MILLIS = 1_000
         const val PREVIEW_BUFFER_AFTER_REBUFFER_MILLIS = 1_500
-        const val PREVIEW_SWITCH_DEBOUNCE_MILLIS = 700L
+        const val PREVIEW_SWITCH_DEBOUNCE_MILLIS = 250L
 
         const val LIVE_TARGET_OFFSET_MILLIS = 10_000L
     }

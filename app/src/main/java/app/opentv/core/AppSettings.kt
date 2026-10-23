@@ -6,6 +6,8 @@
 package app.opentv.core
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import app.opentv.data.model.StremioAddon
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +23,7 @@ import kotlinx.serialization.json.Json
  * ceremony that comes with it. Each setting is also mirrored into a [StateFlow] so Compose
  * recomposes the moment one changes.
  */
-class AppSettings private constructor(context: Context) {
+class AppSettings private constructor(val context: Context) {
 
     private val prefs =
         context.applicationContext.getSharedPreferences("opentv_settings", Context.MODE_PRIVATE)
@@ -99,6 +101,40 @@ class AppSettings private constructor(context: Context) {
         prefs.edit().putString(KEY_DECODER, preference.name).apply()
         _decoderPreference.value = preference
     }
+
+    /** Per-stream playback overrides, keyed by URL prefix. Nullable fields mean "inherit global". */
+    private val _streamSettings = MutableStateFlow(readStreamSettings())
+    val streamSettings: StateFlow<List<StreamSettings>> = _streamSettings.asStateFlow()
+
+    fun setStreamSettings(settings: List<StreamSettings>) {
+        prefs.edit().putString(KEY_STREAM_SETTINGS, streamSettingsJson(settings)).apply()
+        _streamSettings.value = settings
+    }
+
+    /** Find the first stream override whose URL prefix matches the given URL. */
+    fun findStreamSetting(url: String): StreamSettings? =
+        streamSettings.value.firstOrNull { it.url.isNotBlank() && url.startsWith(it.url) }
+
+    private fun readStreamSettings(): List<StreamSettings> =
+        runCatching {
+            prefs.getString(KEY_STREAM_SETTINGS, null)?.let { streamSettingsDecode(it) }
+        }.getOrNull() ?: emptyList()
+
+    private fun streamSettingsJson(settings: List<StreamSettings>): String =
+        streamSettingsEncode(settings)
+
+    /**
+     * Whether this is a low-RAM device. Used to suggest a shallower buffer preset at first launch
+     * so playback starts quickly instead of hoarding memory the box doesn't have.
+     */
+    val isLowRamDevice: Boolean
+        get() {
+            val activityManager =
+                context.applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val memInfo = android.app.ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memInfo)
+            return memInfo.totalMem < 1_000_000_000L // under 1 GB
+        }
 
     /** Whether the selected channel plays live inside the guide's preview pane. */
     private val _guidePreviewVideo = MutableStateFlow(prefs.getBoolean(KEY_PREVIEW_VIDEO, true))
@@ -572,6 +608,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_PAD_END = "rec_pad_end_min"
         private const val KEY_REC_AUTOSWITCH = "rec_auto_switch"
         private const val KEY_LIVE_PAUSE = "live_pause_enabled"
+        private const val KEY_STREAM_SETTINGS = "stream_settings"
 
         @Volatile private var instance: AppSettings? = null
 
