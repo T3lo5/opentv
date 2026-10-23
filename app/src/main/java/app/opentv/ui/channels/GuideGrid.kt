@@ -289,6 +289,10 @@ private fun ChannelListRow(
     focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val onSelectRemembered = remember { onSelect }
+    val onFocusRemembered = remember { onFocus }
+    val onToggleFavouriteRemembered = remember { onToggleFavourite }
+    val onExitLeftRemembered = remember { onExitLeft }
     Row(
         Modifier
             .fillMaxWidth()
@@ -304,15 +308,15 @@ private fun ChannelListRow(
             )
             // LEFT from a row reopens the collapsed rail, exactly like the grid's channel column.
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeft() else false
+                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeftRemembered() else false
             }
             .onFocusChanged {
                 focused = it.isFocused
-                if (it.isFocused) onFocus()
+                if (it.isFocused) onFocusRemembered()
             }
             // Focusable: a clickable row is not a focus target, so on a television the arrows
             // walked straight past every channel and OK had nothing to press.
-            .clickable(onClick = onSelect)
+            .clickable(onClick = onSelectRemembered)
             .focusable()
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -389,7 +393,7 @@ private fun ChannelListRow(
                 )
             }
         }
-        IconButton(onClick = onToggleFavourite, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = onToggleFavouriteRemembered, modifier = Modifier.size(40.dp)) {
             Icon(
                 imageVector = if (row.primary.favourite) Icons.Filled.Star else Icons.Outlined.StarOutline,
                 contentDescription = if (row.primary.favourite) stringResource(R.string.common_remove_favourite)
@@ -446,6 +450,10 @@ private fun GuideRow(
     // Focus (the d-pad border) just moves the highlight. Selection (the filled cell) is the
     // channel the preview is playing — it only changes when you press OK.
     var focused by remember { mutableStateOf(false) }
+    val onSelectRemembered = remember { onSelect }
+    val onFocusRemembered = remember { onFocus }
+    val onToggleFavouriteRemembered = remember { onToggleFavourite }
+    val onExitLeftRemembered = remember { onExitLeft }
 
     Row(Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
 
@@ -469,17 +477,17 @@ private fun GuideRow(
                 // rail; onExitLeft consumes the key only when it handled it (rail was hidden), so
                 // moving left onto programme blocks and into an already-visible rail still works.
                 .onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeft()
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeftRemembered()
                     else false
                 }
                 .onFocusChanged {
                     focused = it.isFocused
-                    if (it.isFocused) onFocus()
+                    if (it.isFocused) onFocusRemembered()
                 }
                 // Focusable, or the channel column is decoration on a television: the arrows
                 // could not reach a channel, so OK — which is "watch this channel" in the
                 // player and "open this channel's menu" on the home screen — never happened.
-                .clickable(onClick = onSelect)
+                .clickable(onClick = onSelectRemembered)
                 .focusable()
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -519,7 +527,7 @@ private fun GuideRow(
             // (only the Channel Manager) — this puts a tappable star on every row; it stays d-pad
             // focusable so it works from a TV remote too.
             IconButton(
-                onClick = onToggleFavourite,
+                onClick = onToggleFavouriteRemembered,
                 modifier = Modifier.size(40.dp),
             ) {
                 Icon(
@@ -579,12 +587,13 @@ private fun GuideRow(
                     val trueWidth = widthFor(start, end)
                     val drawnWidth = maxOf(trueWidth, MIN_BLOCK_WIDTH)
                     debt += drawnWidth - trueWidth
+                    val progKey = programme.startUtcMillis to programme.endUtcMillis
                     ProgrammeBlock(
                         title = programme.title,
                         width = drawnWidth,
                         isNow = isNow,
                         progress = if (isNow) programme.progressAt(nowMillis) else 0f,
-                        onClick = { onProgramme(programme) },
+                        onClick = remember(progKey) { { onProgramme(programme) } },
                     )
                     cursor = end
                 }
@@ -596,6 +605,7 @@ private fun GuideRow(
 @Composable
 private fun ProgrammeBlock(title: String, width: Dp, isNow: Boolean, progress: Float, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    val onClickRemembered = remember { onClick }
     Box(
         Modifier
             .width(width)
@@ -617,7 +627,7 @@ private fun ProgrammeBlock(title: String, width: Dp, isNow: Boolean, progress: F
                 ) else Modifier,
             )
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClickRemembered)
             .focusable(),
     ) {
         Text(

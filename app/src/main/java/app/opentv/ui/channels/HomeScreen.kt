@@ -505,17 +505,21 @@ fun HomeScreen(
                 )
                 // Shared by both layouts: focus follows the highlight and collapses the rail; LEFT
                 // from the leftmost element reopens the rail (consumed only when it was hidden).
-                val onFocusChannel: (ChannelsViewModel.Row) -> Unit = {
-                    highlightedRow = it
-                    railExpanded = false
+                val onFocusChannel = remember<(ChannelsViewModel.Row) -> Unit> {
+                    { row ->
+                        highlightedRow = row
+                        railExpanded = false
+                    }
                 }
-                val onExitLeftChannel: () -> Boolean = {
-                    if (!railExpanded) {
-                        railExpanded = true
-                        pendingRailFocus = true
-                        true
-                    } else {
-                        false
+                val onExitLeftChannel = remember<() -> Boolean> {
+                    {
+                        if (!railExpanded) {
+                            railExpanded = true
+                            pendingRailFocus = true
+                            true
+                        } else {
+                            false
+                        }
                     }
                 }
                 // Which layout the line-up is drawn in.
