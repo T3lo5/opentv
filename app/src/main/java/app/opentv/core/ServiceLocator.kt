@@ -6,6 +6,7 @@
 package app.opentv.core
 
 import android.content.Context
+import app.opentv.data.backup.SettingsBackupRepository
 import app.opentv.data.db.OpenTvDatabase
 import app.opentv.data.remote.StalkerApi
 import app.opentv.data.remote.StremioClient
@@ -111,10 +112,20 @@ object ServiceLocator {
                 sourceDao = database.sources(),
                 api = xtreamApi,
                 http = httpClient,
+                settings = settings,
             )
         }
 
         val playbackPositions get() = database.positions()
+
+        /**
+         * The settings file: this device's configuration, written out to a file and read back
+         * from one. See [app.opentv.data.backup.SettingsBackup] for what travels and what does
+         * not.
+         */
+        val settingsBackupRepository: SettingsBackupRepository by lazy {
+            SettingsBackupRepository(sourceRepository, catalogRepository, settings)
+        }
 
         val profiles get() = database.profiles()
 
