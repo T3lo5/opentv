@@ -5,6 +5,7 @@
  */
 package app.opentv.ui
 
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import app.opentv.R
@@ -45,6 +46,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -128,6 +130,20 @@ fun MainScreen(
     val homeTab = visibleTabs.first()
 
     var tab by remember { mutableStateOf(homeTab) }
+
+    // Keep the TV awake while the app is in the foreground so the box's screensaver
+    // doesn't suspend playback/browsing after a period of inactivity.
+    DisposableEffect(isTelevision) {
+        val window = context.findActivity()?.window
+        if (isTelevision) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (isTelevision) {
+                window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
     // home tab so the content area never tries to show a tab that's no longer there.
