@@ -195,15 +195,11 @@ fun PlayerScreen(
     // set directly — on anything that is not a television.
     DisposableEffect(Unit) {
         val window = context.findActivity()?.window
-        if (!isTelevision) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            view.keepScreenOn = true
-        }
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        view.keepScreenOn = true
         onDispose {
-            if (!isTelevision) {
-                window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                view.keepScreenOn = false
-            }
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            view.keepScreenOn = false
             controller.release()
             scope.cancel()
         }
