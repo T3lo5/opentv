@@ -12,35 +12,37 @@ GitHub release.
 
 ## Signing
 
-**Right now, release builds are signed with the Android debug key.** This is deliberate, and
-it is temporary.
+**Release builds are signed with the project's own upload key**, held in the repository secrets
+and never in this repository. `release.yml` refuses to publish when that key is missing, because
+a release signed with a temporary key cannot be updated in place: Android rejects an install
+whose signing certificate differs from the installed one
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), so the in-app updater silently stops working for every
+user who installed the previous build.
 
-An *unsigned* APK cannot be installed on Android at all — the installer rejects it before the
-user sees anything, with an error that explains nothing. That would mean no one can test the
-app until signing infrastructure exists. So `app/build.gradle.kts` falls back to the debug key
-when no keystore is configured, and the result installs fine.
-
-The cost, stated plainly: **when the project moves to a real keystore, Android will refuse to
-upgrade over a debug-signed install.** Everyone testing today will have to uninstall and
-reinstall, losing their settings. That is fine for a handful of early testers and completely
-unacceptable once there are hundreds. **Set up real signing before announcing the project
-publicly.**
+That failure is not hypothetical — it is what happened before 0.12.6. Releases were signed with
+the CI runner's throwaway debug key, a *different* key on every run, so no build could ever be
+installed over another. The one-time cost of moving to a stable key is that installs older than
+0.12.6 have to be uninstalled and installed fresh once; users should export their settings
+(Settings → Backup) first and restore them afterwards.
 
 ### Setting up real signing
 
-1. Generate a keystore:
+1. Generate a keystore, and keep it **out of the repository**:
 
    ```bash
-   keytool -genkeypair -v -keystore upload.jks -keyalg RSA -keysize 4096 \
+   keytool -genkeypair -v -keystore upload.jks -storetype PKCS12 -keyalg RSA -keysize 4096 \
      -validity 10000 -alias opentv
    ```
 
 2. Add these repository secrets under **Settings → Secrets and variables → Actions**:
-   `KEYSTORE_BASE64` (the output of `base64 -i upload.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
-   `KEY_PASSWORD`.
+   `KEYSTORE_BASE64` (the output of `base64 -w0 upload.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+   `KEY_PASSWORD`. PKCS12 normally uses one password for both, so the last two are usually equal.
 
-3. That is all — `release.yml` and `build.gradle.kts` already pick them up. The release notes
-   will report `signed: yes` instead of `debug-key`.
+3. That is all — `release.yml` and `build.gradle.kts` pick them up. The release step reports
+   `signed: yes` instead of `debug-key`.
+
+The fingerprint of the current key is printed by `apksigner verify --print-certs` on any release
+APK; check it when you take over, and keep the value somewhere with the backup.
 
 **The keystore must belong to the project, not to one person.** A single maintainer holding
 the only copy is the same single point of failure this project exists to avoid — if they go

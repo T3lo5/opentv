@@ -16,3 +16,4 @@ captures/
 
 # Kotlin compiler transient logs
 .kotlin/
+*.jks

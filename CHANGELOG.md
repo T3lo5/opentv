@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.12.6
+
+- **A stream that stops no longer leaves you staring at a spinner.** The live player never held
+  the network awake, so a TV box left alone would suspend its Wi-Fi and starve a channel a few
+  minutes into the programme — the classic "starts fine, then buffers". Playback now holds the
+  network lock for as long as it is playing. And for the failure the player never reports at all
+  — a connection that stays open and simply goes quiet — a stall watchdog retunes the stream on
+  a fresh connection after **12 seconds**, up to three times, instead of waiting forever.
+- **Reconnecting looks like reconnecting, and lasts longer.** The ordinary player gave up after
+  three tries 1.5 seconds apart, while the player used for per-channel settings retried ten times
+  with a backoff — the same listener, written twice, had drifted apart, and the one everybody
+  actually uses was the one that died first. Both now share one policy: up to ten attempts at
+  1 s, 2 s, 4 s and 8 s, with the buffering picture left on screen rather than a failure dialog
+  for a provider that is about to answer again.
+- **A channel with its own buffer or decoder setting plays with video.** Those streams decode on
+  a second player instance, but the video surface and the transport bar were still bound to the
+  base one — so the picture stayed black and pause/seek acted on a player that was not playing.
+  The surface now follows the active player, and that player is only rebuilt when the setting
+  actually changes, instead of tearing down a codec on every channel change.
+- **Releases are signed with a key that stays the same.** The release workflow had no keystore
+  configured and fell back to the runner's throwaway debug key, so every build came out with a
+  different signature and the in-app updater could never install over an existing version —
+  Android refuses with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Every release is signed with the
+  project's upload key now, the workflow fails rather than publishing a build signed with a
+  temporary key, and the updater does what it was written to do. Installs older than this one
+  have to be uninstalled and installed fresh **once** (export your settings first — Settings →
+  Backup — and restore them after).
+
 ## 0.12.4
 
 - **The source code link points at this build.** The About screen pointed at the upstream
