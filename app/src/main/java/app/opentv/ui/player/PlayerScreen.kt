@@ -179,6 +179,9 @@ fun PlayerScreen(
     }
     val state by controller.state.collectAsState()
     val tracks by controller.tracks.collectAsState()
+    // The instance actually rendering: a stream with its own buffer/decoder plays on a
+    // different ExoPlayer, and the surface has to follow it.
+    val activePlayer by controller.activePlayerFlow.collectAsState()
     // What's recording right now, so the Record button can show as armed for this channel.
     val activeRecordings by graph.recordingRepository.observeActive().collectAsState(initial = emptyList())
 
@@ -421,7 +424,7 @@ fun PlayerScreen(
         val window = androidx.media3.common.Timeline.Window()
         while (isActive) {
             if (!scrubbing) {
-                val player = controller.player
+                val player = controller.activePlayer
                 val position = player.currentPosition.coerceAtLeast(0L)
                 positionMs = position
 
@@ -729,7 +732,7 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    player = controller.player
+                    player = activePlayer
                     useController = false
                     subtitleView?.setUserDefaultStyle()
                     subtitleView?.setUserDefaultTextSize()
@@ -739,7 +742,14 @@ fun PlayerScreen(
                     )
                 }
             },
-            update = { it.resizeMode = resizeMode },
+            update = { view ->
+                // A per-stream override swaps the ExoPlayer under us; the surface has to go with
+                // it or the stream decodes to nothing and only the audio is heard.
+                if (view.player !== activePlayer) view.player = activePlayer
+                // Only when it actually changed: setting it re-lays out the video surface, and
+                // doing that on every recomposition shows up as jitter on a cheap box.
+                if (view.resizeMode != resizeMode) view.resizeMode = resizeMode
+            },
         )
 
         // The channel number as you type it, top-right, until it resolves.
@@ -902,7 +912,7 @@ fun PlayerScreen(
                                 maxOf(barEndMs.toFloat(), barStartMs.toFloat() + 1f),
                             onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                             onValueChangeFinished = {
-                                controller.player.seekTo(scrubValue.toLong())
+                                controller.activePlayer.seekTo(scrubValue.toLong())
                                 positionMs = scrubValue.toLong()
                                 scrubbing = false
                                 interaction++
@@ -990,7 +1000,7 @@ fun PlayerScreen(
                         selected = false,
                     ) {
                         paused = !paused
-                        controller.player.playWhenReady = !paused
+                        controller.activePlayer.playWhenReady = !paused
                         interaction++
                     }
                     if (controller.isSeekable || canRewind) {

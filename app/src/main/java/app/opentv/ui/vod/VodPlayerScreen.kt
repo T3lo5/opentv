@@ -148,13 +148,15 @@ fun VodPlayerScreen(
     // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
     // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
     fun seekRelative(deltaMs: Long) {
-        val p = controller.player
+        val p = controller.activePlayer
         val ceiling = if (growingRec) p.bufferedPosition.coerceAtLeast(0L)
         else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
         p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
     }
     val state by controller.state.collectAsState()
     val tracks by controller.tracks.collectAsState()
+    // The instance actually rendering — see the note in PlayerScreen.
+    val activePlayer by controller.activePlayerFlow.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
@@ -195,7 +197,7 @@ fun VodPlayerScreen(
     }
 
     suspend fun savePosition() {
-        val player = controller.player
+        val player = controller.activePlayer
         savePositionAt(player.currentPosition, player.duration)
     }
 
@@ -255,8 +257,8 @@ fun VodPlayerScreen(
                 event == Lifecycle.Event.ON_STOP -> {
                     // Read where the film was before the stop — stopping resets the
                     // position to zero, so the save has to come first.
-                    val position = controller.player.currentPosition
-                    val duration = controller.player.duration
+                    val position = controller.activePlayer.currentPosition
+                    val duration = controller.activePlayer.duration
                     scope.launch { savePositionAt(position, duration) }
                     controller.stop()
                     stoppedWithTheScreen = true
@@ -287,11 +289,11 @@ fun VodPlayerScreen(
     LaunchedEffect(Unit) {
         while (isActive) {
             if (!scrubbing) {
-                positionMs = controller.player.currentPosition.coerceAtLeast(0)
+                positionMs = controller.activePlayer.currentPosition.coerceAtLeast(0)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
-                durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
-                else controller.player.duration.takeIf { it > 0 } ?: 0
+                durationMs = if (growingRec) controller.activePlayer.bufferedPosition.coerceAtLeast(0)
+                else controller.activePlayer.duration.takeIf { it > 0 } ?: 0
             }
             delay(500)
         }
@@ -350,7 +352,7 @@ fun VodPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    player = controller.player
+                    player = activePlayer
                     useController = false
                     subtitleView?.setUserDefaultStyle()
                     subtitleView?.setUserDefaultTextSize()
@@ -360,6 +362,9 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            // A per-stream override plays on a different ExoPlayer; without this the film
+            // decodes with no surface.
+            update = { view -> if (view.player !== activePlayer) view.player = activePlayer },
         )
 
         when (val current = state) {
@@ -450,7 +455,7 @@ fun VodPlayerScreen(
                         valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
-                            controller.player.seekTo(scrubValue.toLong())
+                            controller.activePlayer.seekTo(scrubValue.toLong())
                             positionMs = scrubValue.toLong()
                             scrubbing = false
                             interaction++
@@ -477,7 +482,7 @@ fun VodPlayerScreen(
                         label = if (paused) stringResource(R.string.common_play) else stringResource(R.string.player_pause),
                     ) {
                         paused = !paused
-                        controller.player.playWhenReady = !paused
+                        controller.activePlayer.playWhenReady = !paused
                         interaction++
                     }
                     Spacer(Modifier.width(10.dp))

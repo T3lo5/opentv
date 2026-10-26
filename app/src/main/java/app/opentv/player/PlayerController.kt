@@ -6,6 +6,9 @@
 package app.opentv.player
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -129,9 +132,23 @@ class PlayerController(
 
     private var switchJob: Job? = null
     private var current: Request? = null
-    private var consecutiveFailures = 0
+
+    /** Automatic reconnects since the last successful play. Reset when the picture is back. */
     private var autoRetryCount = 0
     private val maxAutoRetries = 10
+
+    /**
+     * The stall watchdog.
+     *
+     * A live stream can stop delivering data without ever raising an error: the socket stays
+     * open, the server just goes quiet, and ExoPlayer sits in STATE_BUFFERING forever. Nothing
+     * times that out, so the viewer is left with a spinner that never ends — the complaint
+     * every IPTV player gets. When a stream that *had* been playing stays buffering for
+     * [STALL_RECOVERY_MILLIS], the tune is redone on a fresh connection.
+     */
+    private var stallWatchdog: Job? = null
+    private var hasPlayedThisTune = false
+    private var stallRecoveries = 0
 
     /**
      * Held so the User-Agent can be swapped per source before each tune.
@@ -234,9 +251,22 @@ class PlayerController(
             null
         }
 
-    val player: ExoPlayer = ExoPlayer.Builder(context)
+    /**
+     * The player that is not subject to a per-stream override.
+     *
+     * Kept private: everything outside this class has to go through [activePlayer], because a
+     * stream with its own buffer preset or decoder plays on a *different* instance. Handing the
+     * base player to a view or a button is exactly the bug that made those streams play to
+     * nothing.
+     */
+    private val basePlayer: ExoPlayer = ExoPlayer.Builder(context)
         .setSeekBackIncrementMs(SEEK_INCREMENT_MILLIS)
         .setSeekForwardIncrementMs(SEEK_INCREMENT_MILLIS)
+        // Hold the network awake for as long as the player is playing. Without this a TV box
+        // that goes idle suspends its Wi-Fi — and a live stream then starves and stalls a few
+        // minutes into the programme, which is exactly the "starts fine, then buffers" report.
+        // Not for the guide preview: a muted thumbnail has no business keeping a set awake.
+        .apply { if (!preview) setWakeMode(C.WAKE_MODE_NETWORK) }
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(dataSourceFactory)
                 .setLoadErrorHandlingPolicy(loadErrorPolicy),
@@ -269,53 +299,135 @@ class PlayerController(
                 .build(),
         )
         .build()
-        .apply {
-            addListener(object : Player.Listener {
-                override fun onTracksChanged(tracks: Tracks) {
-                    _tracks.value = tracks
+        .apply { addListener(buildPlaybackListener()) }
+
+    /**
+     * The listener both players share.
+     *
+     * It used to be written out twice — once for the default player and once for the
+     * override player — and the two copies drifted: the override player retried ten times
+     * with a backoff, the normal one three times 1.5 seconds apart and then gave up. The
+     * ordinary live player is the one almost everybody uses, so it was the one that died
+     * first. One listener, one policy.
+     */
+    private fun buildPlaybackListener(): Player.Listener = object : Player.Listener {
+        override fun onTracksChanged(tracks: Tracks) {
+            _tracks.value = tracks
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val title = current?.title.orEmpty()
+            when (playbackState) {
+                Player.STATE_BUFFERING -> {
+                    _state.value = State.Buffering(title)
+                    // A stall is only a stall once the picture has been up. The initial tune is
+                    // *supposed* to buffer while it fills.
+                    if (hasPlayedThisTune) watchForStall()
                 }
 
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    val title = current?.title.orEmpty()
-                    _state.value = when (playbackState) {
-                        Player.STATE_BUFFERING -> State.Buffering(title)
-                        Player.STATE_READY -> {
-                            consecutiveFailures = 0
-                            autoRetryCount = 0
-                            State.Playing(title)
-                        }
-                        Player.STATE_IDLE -> _state.value
-                        Player.STATE_ENDED -> State.Idle
-                        else -> _state.value
-                    }
+                Player.STATE_READY -> {
+                    stallWatchdog?.cancel()
+                    stallWatchdog = null
+                    hasPlayedThisTune = true
+                    autoRetryCount = 0
+                    _state.value = State.Playing(title)
                 }
 
-                override fun onPlayerError(error: PlaybackException) {
-                    consecutiveFailures++
-                    val request = current
-                    _state.value = State.Error(
-                        title = request?.title.orEmpty(),
-                        message = PlaybackErrors.describe(error),
-                        canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
-                    )
-                    // One silent restart covers the common case of a provider dropping the
-                    // connection when another device on the account starts streaming.
-                    if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
-                        scope.launch {
-                            delay(AUTO_RESTART_DELAY_MILLIS)
-                            if (current == request) play(request, debounce = false)
-                        }
-                    }
+                Player.STATE_ENDED -> {
+                    stallWatchdog?.cancel()
+                    stallWatchdog = null
+                    _state.value = State.Idle
                 }
-        })
+
+                // IDLE keeps whatever the error handler just wrote; there is nothing to say here.
+                else -> Unit
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            val request = current ?: return
+            autoRetryCount++
+            val willRetry = autoRetryCount < maxAutoRetries
+            Log.w(
+                TAG,
+                "playback error on \"${request.title}\" " +
+                    "(${autoRetryCount}/${maxAutoRetries}): ${error.errorCodeName}",
+                error,
+            )
+
+            // While a reconnect is coming, the picture's own buffering state is what the viewer
+            // should see — not a failure screen for a provider that is about to answer again.
+            _state.value = if (willRetry) {
+                State.Buffering(request.title)
+            } else {
+                State.Error(
+                    title = request.title,
+                    message = PlaybackErrors.describe(error),
+                    canRetry = true,
+                )
+            }
+
+            if (willRetry) {
+                scope.launch {
+                    delay(retryDelayFor(autoRetryCount))
+                    if (current === request) play(request, debounce = false)
+                }
+            }
+        }
     }
+
+    /**
+     * Watches a playing stream for the one failure ExoPlayer does not report: the picture
+     * stopped and no data is arriving, but the connection was never formally lost. When that
+     * lasts [STALL_RECOVERY_MILLIS], the stream is retuned on a fresh connection.
+     *
+     * Bounded on purpose: a provider that is genuinely down is not helped by reconnecting
+     * forever, and each attempt interrupts whatever was buffered.
+     */
+    private fun watchForStall() {
+        if (stallWatchdog != null) return
+        val request = current ?: return
+        if (stallRecoveries >= MAX_STALL_RECOVERIES) return
+
+        stallWatchdog = scope.launch {
+            delay(STALL_RECOVERY_MILLIS)
+            stallWatchdog = null
+            if (current !== request) return@launch
+            if (_state.value !is State.Buffering) return@launch
+
+            stallRecoveries++
+            Log.i(
+                TAG,
+                "stalled ${STALL_RECOVERY_MILLIS} ms on \"${request.title}\"; " +
+                    "reconnecting (${stallRecoveries}/$MAX_STALL_RECOVERIES)",
+            )
+            play(request, debounce = false)
+        }
+    }
+
+    /** Exponential backoff for a reconnect: 1 s, 2 s, 4 s, then 8 s between attempts. */
+    private fun retryDelayFor(attempt: Int): Long =
+        minOf(INITIAL_AUTO_RETRY_MILLIS shl (attempt - 1).coerceIn(0, 3), MAX_AUTO_RETRY_MILLIS)
 
     /** The override-applied player, non-null when a stream override is active. */
     private var overridePlayer: ExoPlayer? = null
 
-    /** The player to use right now: override-applied if active, otherwise the default. */
-    private val activePlayer: ExoPlayer
-        get() = overridePlayer ?: player
+    /** The preset/decoder pair [overridePlayer] was built for, so it is only rebuilt on change. */
+    private var activeOverrides: Pair<BufferPreset?, DecoderPreference?>? = null
+
+    /** The player to use right now: override-applied if active, otherwise the base one. */
+    val activePlayer: ExoPlayer
+        get() = overridePlayer ?: basePlayer
+
+    /**
+     * [activePlayer] as state, for the one thing that has to *observe* it: the surface.
+     *
+     * A [PlayerView] binds to a single player instance, so when an override swaps the instance
+     * under it the view has to be rebound — otherwise the stream decodes with no surface and
+     * the viewer gets audio over a black picture.
+     */
+    private val _activePlayer = MutableStateFlow(basePlayer)
+    val activePlayerFlow: StateFlow<ExoPlayer> = _activePlayer.asStateFlow()
 
     /**
      * Recreates the underlying [ExoPlayer] with per-stream overrides applied, so a twitchy
@@ -360,6 +472,7 @@ class PlayerController(
         val newPlayer = ExoPlayer.Builder(context)
             .setSeekBackIncrementMs(SEEK_INCREMENT_MILLIS)
             .setSeekForwardIncrementMs(SEEK_INCREMENT_MILLIS)
+            .apply { if (!preview) setWakeMode(C.WAKE_MODE_NETWORK) }
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(dataSourceFactory)
                     .setLoadErrorHandlingPolicy(loadErrorPolicy),
@@ -368,56 +481,28 @@ class PlayerController(
             .apply { newRenderersFactory?.let { setRenderersFactory(it) } }
             .setLoadControl(newLoadControl)
             .build()
-            .apply {
-                addListener(object : Player.Listener {
-                    override fun onTracksChanged(tracks: Tracks) {
-                        _tracks.value = tracks
-                    }
+            .apply { addListener(buildPlaybackListener()) }
 
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        val title = current?.title.orEmpty()
-                        _state.value = when (playbackState) {
-                            Player.STATE_BUFFERING -> State.Buffering(title)
-                            Player.STATE_READY -> {
-                                consecutiveFailures = 0
-                                State.Playing(title)
-                            }
-                            Player.STATE_IDLE -> _state.value
-                            Player.STATE_ENDED -> State.Idle
-                            else -> _state.value
-                        }
-                    }
-
-                    override fun onPlayerError(error: PlaybackException) {
-                        consecutiveFailures++
-                        autoRetryCount++
-                        val request = current
-                        _state.value = State.Error(
-                            title = request?.title.orEmpty(),
-                            message = if (autoRetryCount < maxAutoRetries) "Reconectando..." else PlaybackErrors.describe(error),
-                            canRetry = autoRetryCount < maxAutoRetries || consecutiveFailures < MAX_AUTO_RESTARTS,
-                        )
-                        if (autoRetryCount < maxAutoRetries && request != null) {
-                            scope.launch {
-                                val delayMs = (AUTO_RESTART_DELAY_MILLIS * (1L shl minOf(autoRetryCount - 1, 3))).coerceAtMost(10000L)
-                                delay(delayMs)
-                                if (current == request) {
-                                    _state.value = State.Buffering(request.title)
-                                    play(request, debounce = false)
-                                }
-                            }
-                        } else if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
-                            scope.launch {
-                                delay(AUTO_RESTART_DELAY_MILLIS)
-                                if (current == request) play(request, debounce = false)
-                            }
-                        }
-                    }
-                })
-            }
-
-        overridePlayer?.release()
+        val previous = overridePlayer
         overridePlayer = newPlayer
+        // Announce the swap first: the surface rebinds to the new instance, and only then is the
+        // old one retired.
+        _activePlayer.value = newPlayer
+        previous?.let { retire(it) }
+    }
+
+    /**
+     * Retires a player once the surface has had a moment to let go of it.
+     *
+     * The `PlayerView` rebinds on the next composition, so tearing the old instance down first
+     * leaves the view briefly talking to a released player — which is the kind of thing that
+     * takes the whole surface down on a cheap box.
+     */
+    private fun retire(old: ExoPlayer) {
+        Handler(Looper.getMainLooper()).postDelayed(
+            { old.release() },
+            SURFACE_REBIND_GRACE_MILLIS,
+        )
     }
 
     /**
@@ -430,26 +515,45 @@ class PlayerController(
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
+        // A new tune starts from a clean slate. The same request replayed by the stall watchdog
+        // or a reconnect keeps its budget, so a stream that will not recover cannot loop.
+        if (current !== request) {
+            stallWatchdog?.cancel()
+            stallWatchdog = null
+            hasPlayedThisTune = false
+            stallRecoveries = 0
+        }
         current = request
 
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
 
-            consecutiveFailures = 0
             autoRetryCount = 0
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
             // Apply per-stream overrides before tuning: a twitchy stream gets its own
             // buffer preset and/or decoder without changing the global defaults.
+            //
+            // Only when they actually changed: building an ExoPlayer is a codec teardown and a
+            // codec construction, and doing that on every zap is how a cheap box runs out of
+            // decoders mid-channel-surf.
+            val overrides = request.bufferPresetOverride to request.decoderPreferenceOverride
             if (request.bufferPresetOverride != null || request.decoderPreferenceOverride != null) {
-                recreatePlayerWithOverrides(
-                    request.bufferPresetOverride,
-                    request.decoderPreferenceOverride,
-                )
-            } else {
-                overridePlayer?.release()
+                if (activeOverrides != overrides) {
+                    recreatePlayerWithOverrides(
+                        request.bufferPresetOverride,
+                        request.decoderPreferenceOverride,
+                    )
+                    activeOverrides = overrides
+                }
+            } else if (overridePlayer != null) {
+                val previous = overridePlayer
                 overridePlayer = null
+                activeOverrides = null
+                // Back to the base instance, and tell the surface before the old one goes away.
+                _activePlayer.value = basePlayer
+                previous?.let { retire(it) }
             }
 
             val mediaItem = MediaItem.Builder()
@@ -474,6 +578,9 @@ class PlayerController(
                 if (!request.isLive && request.startPositionMillis > 0) {
                     seekTo(request.startPositionMillis)
                 }
+                // The watchdog only guards a picture that has been up. This attempt has not
+                // shown one yet, so it must not be counted as a stall on its own.
+                hasPlayedThisTune = false
                 playWhenReady = true
                 prepare()
             }
@@ -502,7 +609,7 @@ class PlayerController(
         } else {
             // Nothing to select yet — allow the renderer so a track that arrives later can be
             // picked up, and re-assert once tracks change.
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        activePlayer.trackSelectionParameters = activePlayer.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .build()
@@ -564,6 +671,9 @@ class PlayerController(
 
     fun stop() {
         switchJob?.cancel()
+        stallWatchdog?.cancel()
+        stallWatchdog = null
+        hasPlayedThisTune = false
         current = null
         activePlayer.stop()
         activePlayer.clearMediaItems()
@@ -572,8 +682,13 @@ class PlayerController(
 
     fun release() {
         switchJob?.cancel()
+        stallWatchdog?.cancel()
+        stallWatchdog = null
+        _activePlayer.value = basePlayer
         overridePlayer?.release()
-        player.release()
+        overridePlayer = null
+        activeOverrides = null
+        basePlayer.release()
     }
 
     private companion object {
@@ -587,8 +702,25 @@ class PlayerController(
         const val INITIAL_BACKOFF_MILLIS = 500L
         const val MAX_BACKOFF_MILLIS = 8_000L
         const val MAX_LOAD_RETRIES = 5
-        const val MAX_AUTO_RESTARTS = 3
-        const val AUTO_RESTART_DELAY_MILLIS = 1_500L
+
+        /** Reconnect backoff for a player error: 1 s, 2 s, 4 s, then 8 s. */
+        const val INITIAL_AUTO_RETRY_MILLIS = 1_000L
+        const val MAX_AUTO_RETRY_MILLIS = 8_000L
+
+        /**
+         * How long a picture that *had* been playing may sit in buffering before the stream is
+         * retuned on a fresh connection. Long enough to ride a normal hiccup on a slow line,
+         * short enough that the viewer is not left staring at a spinner.
+         */
+        const val STALL_RECOVERY_MILLIS = 12_000L
+
+        /** Reconnects a single tune gets before it is treated as a genuinely dead stream. */
+        const val MAX_STALL_RECOVERIES = 3
+
+        /** How long a retired player is kept alive after the surface was told to move off it. */
+        const val SURFACE_REBIND_GRACE_MILLIS = 500L
+
+        const val TAG = "OpenTVPlayer"
 
         /**
          * Larger than ExoPlayer's defaults. IPTV sources are much twitchier than a CDN, and a

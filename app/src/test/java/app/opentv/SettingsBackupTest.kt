@@ -86,6 +86,7 @@ class SettingsBackupTest {
         val http = OkHttpClient.Builder().build()
         val sourceRepository = SourceRepository(db.sources(), XtreamApi(http), StalkerApi(http))
         val catalogRepository = CatalogRepository(
+            context = context,
             sourceDao = db.sources(),
             channelDao = db.channels(),
             categoryDao = db.categories(),

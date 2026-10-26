@@ -256,7 +256,7 @@ fun HomeScreen(
     val previewScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     val previewController = remember {
         PlayerController(context, previewScope, graph.httpClient, subtitlesEnabled = false, preview = true)
-            .also { it.player.volume = 0f }
+            .also { it.activePlayer.volume = 0f }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -311,7 +311,7 @@ fun HomeScreen(
 
     // Preview audio follows the setting; muted by default so browsing stays quiet.
     LaunchedEffect(previewSound) {
-        previewController.player.volume = if (previewSound) 1f else 0f
+        previewController.activePlayer.volume = if (previewSound) 1f else 0f
     }
 
     // Tune the preview to the highlighted channel, so it follows the d-pad as you browse — the
@@ -493,7 +493,7 @@ fun HomeScreen(
                     onWatch = { highlightedRow?.let { goFullscreen(it.primary) } },
                     onRefresh = onRefresh,
                     onAddSource = onAddSource,
-                    previewPlayer = if (previewEnabled && !recordingActive) previewController.player else null,
+                    previewPlayer = if (previewEnabled && !recordingActive) previewController.activePlayer else null,
                     isRecording = highlightedRow?.primary?.id?.let { id ->
                         activeRecordings.any { it.channelId == id }
                     } == true,
