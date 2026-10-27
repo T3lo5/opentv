@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.1
+
+- **The channel asked for by another app is found even when the provider spells it differently.**
+  A game's broadcaster comes as `ESPN2`, while the playlist says `ESPN 2`, `ESPN2 FHD` or carries
+  only `ESPN` — the request landed on the channel list instead of the match. The name is now tried
+  in the spellings providers use, and the results are compared by the same key that folds a
+  channel's quality variants, so the best-quality stream of the right channel is the one that
+  plays. Channels the provider does not carry still open the list, which is where the search was
+  going anyway.
+
 ## 0.13.0
 
 - **A game from another app on the TV opens the channel it is on.** Free My TV (the launcher this

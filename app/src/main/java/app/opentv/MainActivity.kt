@@ -304,7 +304,12 @@ private fun OpenTvApp(isTelevision: Boolean) {
             var hit: app.opentv.data.model.Channel? = null
             for (name in asked.split("|")) {
                 if (name.isBlank()) continue
-                hit = runCatching { repo.searchChannels(name.trim()).first().firstOrNull() }.getOrNull()
+                // The provider may spell it "ESPN 2" or carry only "ESPN": try the spellings and
+                // compare by the key that folds quality variants (ChannelQuery).
+                val tried = app.opentv.data.parser.ChannelQuery.variants(name).flatMap { variant ->
+                    runCatching { repo.searchChannels(variant).first() }.getOrDefault(emptyList())
+                }
+                hit = app.opentv.data.parser.ChannelQuery.bestMatch(name, tried)
                 if (hit != null) break
             }
             hit
