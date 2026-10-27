@@ -295,26 +295,30 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // A channel asked by name (Free My TV, from a game): try each candidate and tune the first one
     // this IPTV has. None of them means the person does not carry that broadcaster here — show the
     // channel list instead of a dead end.
-    val nameRequest by app.opentv.core.PlayRequests.channelName.collectAsState()
-    LaunchedEffect(nameRequest) {
-        val asked = nameRequest ?: return@LaunchedEffect
-        app.opentv.core.PlayRequests.consumeName()
-        val repo = ServiceLocator.get(bootContext).catalogRepository
-        val found = withContext(Dispatchers.IO) {
-            var hit: app.opentv.data.model.Channel? = null
-            for (name in asked.split("|")) {
-                if (name.isBlank()) continue
-                // The provider may spell it "ESPN 2" or carry only "ESPN": try the spellings and
-                // compare by the key that folds quality variants (ChannelQuery).
-                val tried = app.opentv.data.parser.ChannelQuery.variants(name).flatMap { variant ->
-                    runCatching { repo.searchChannels(variant).first() }.getOrDefault(emptyList())
+    //
+    // Collected without being keyed on the value: consuming the request changes that value, and a
+    // keyed effect would be cancelled right there, before the search below had finished.
+    LaunchedEffect(Unit) {
+        app.opentv.core.PlayRequests.channelName.collect { asked ->
+            if (asked.isNullOrBlank()) return@collect
+            app.opentv.core.PlayRequests.consumeName()
+            val repo = ServiceLocator.get(bootContext).catalogRepository
+            val found = withContext(Dispatchers.IO) {
+                var hit: app.opentv.data.model.Channel? = null
+                for (name in asked.split("|")) {
+                    if (name.isBlank()) continue
+                    // The provider may spell it "ESPN 2" or carry only "ESPN": try the spellings and
+                    // compare by the key that folds quality variants (ChannelQuery).
+                    val tried = app.opentv.data.parser.ChannelQuery.variants(name).flatMap { variant ->
+                        runCatching { repo.searchChannels(variant).first() }.getOrDefault(emptyList())
+                    }
+                    hit = app.opentv.data.parser.ChannelQuery.bestMatch(name, tried)
+                    if (hit != null) break
                 }
-                hit = app.opentv.data.parser.ChannelQuery.bestMatch(name, tried)
-                if (hit != null) break
+                hit
             }
-            hit
+            if (found != null) navController.navigate(Routes.player(found.id)) else navController.navigate(Routes.CHANNELS)
         }
-        if (found != null) navController.navigate(Routes.player(found.id)) else navController.navigate(Routes.CHANNELS)
     }
 
     // Auto-switch: a scheduled recording started, so move the live view onto the recording file

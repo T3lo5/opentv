@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.2
+
+- **The channel asked for by another app now actually opens.** The request was consumed the moment
+  it arrived, which changed the value the effect was keyed on and cancelled the coroutine in the
+  middle of the search — so the app looked at the request, dropped it, and stayed on the guide.
+  The request is now collected without being keyed on its own value, and only cleared once the
+  channel has been found (or the list opened).
+
 ## 0.13.1
 
 - **The channel asked for by another app is found even when the provider spells it differently.**
