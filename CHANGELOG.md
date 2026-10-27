@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0
+
+- **A game from another app on the TV opens the channel it is on.** Free My TV (the launcher this
+  was built alongside) knows which broadcaster carries each match, but not which of them this unit
+  actually receives — so it asks for the candidates by name, `Premiere|SporTV|Globo`, and OpenTV
+  tunes the first one in the list. Nothing is added to the guide for channels the person does not
+  have: when none of the names match, the channel list opens where the search would have ended.
+- **A settings file can be restored before adding a provider.** The backup was only reachable from
+  Settings, which sits behind a configured provider — so anyone reinstalling, or starting over on
+  a new box, had to type the provider by hand before they could import the file that already
+  contained it. The first screen now offers *Restore a settings file*, and a successful import
+  goes straight to the guide with the providers back and the channels syncing in the background.
+
 ## 0.12.6
 
 - **A stream that stops no longer leaves you staring at a spinner.** The live player never held

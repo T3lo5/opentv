@@ -73,6 +73,9 @@ fun AddSourceScreen(
     viewModel: SourcesViewModel,
     onFinished: () -> Unit,
     editingSourceId: Long? = null,
+    // Offered on a fresh install: a settings file already has the providers, so there is no reason
+    // to type them again before being allowed to import it.
+    onRestore: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // The QR "set it up from your phone" flow only makes sense on a TV — it serves a setup page
@@ -389,6 +392,13 @@ fun AddSourceScreen(
                     enabled = canSubmit && !ui.testing && !ui.syncing,
                 ) {
                     Text(if (ui.syncing) stringResource(R.string.onboarding_working) else stringResource(R.string.onboarding_save_load))
+                }
+            }
+
+            if (onRestore != null) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onRestore) {
+                    Text(stringResource(R.string.onboarding_restore_backup))
                 }
             }
 

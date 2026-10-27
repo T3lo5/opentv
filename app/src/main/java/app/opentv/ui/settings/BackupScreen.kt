@@ -76,7 +76,7 @@ import java.util.Locale
  *    the device that owns them, and this is the one place they travel.
  */
 @Composable
-fun BackupScreen(onBack: () -> Unit) {
+fun BackupScreen(onBack: () -> Unit, onImported: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember { ServiceLocator.get(context).settingsBackupRepository }
@@ -233,6 +233,7 @@ fun BackupScreen(onBack: () -> Unit) {
                                 if (report.sourcesAdded > 0 || report.sourcesUpdated > 0) {
                                     SyncWorker.refreshNow(context)
                                 }
+                                onImported()
                             }
                         }
                     },

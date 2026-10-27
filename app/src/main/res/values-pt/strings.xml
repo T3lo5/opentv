@@ -368,6 +368,7 @@
     <string name="onboarding_user_agent_help">Alguns fornecedores bloqueiam aplicações desconhecidas com um erro 403. Se todos os canais falharem, experimente aqui o User-Agent de um leitor comum.</string>
     <string name="onboarding_working">A processar…</string>
     <string name="onboarding_save_load">Guardar e carregar</string>
+    <string name="onboarding_restore_backup">Restaurar um arquivo de ajustes</string>
     <string name="onboarding_use_phone">Usar o meu telemóvel em vez disso</string>
     <string name="onboarding_privacy_note">Os dados do seu fornecedor são guardados apenas neste dispositivo. O OpenTV não tem sistema de contas nem servidor próprio — nada do que escrever aqui é enviado para lado nenhum, exceto para o seu fornecedor.</string>
     <string name="pairing_stopped">Emparelhamento parado</string>

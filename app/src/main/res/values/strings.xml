@@ -439,6 +439,7 @@
     <string name="onboarding_timezone_help">The provider\'s own timezone, e.g. Europe/Paris. Catch-up links ask for the recording on that clock, not on this device\'s. Leave blank to use your device\'s time.</string>
     <string name="onboarding_working">Working…</string>
     <string name="onboarding_save_load">Save and load</string>
+    <string name="onboarding_restore_backup">Restore a settings file</string>
     <string name="onboarding_use_phone">Use my phone instead</string>
     <string name="onboarding_privacy_note">Your provider details are stored on this device only. OpenTV has no account system and no server of its own — nothing you type here is sent anywhere except to your provider.</string>
 

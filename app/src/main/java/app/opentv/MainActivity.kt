@@ -50,6 +50,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -133,6 +136,8 @@ class MainActivity : ComponentActivity() {
     private fun handlePlayIntent(intent: Intent?) {
         val id = intent?.getLongExtra(EXTRA_PLAY_CHANNEL, 0L) ?: 0L
         if (id != 0L) app.opentv.core.PlayRequests.request(id)
+        val names = intent?.getStringExtra(EXTRA_PLAY_CHANNEL_NAME)
+        if (!names.isNullOrBlank()) app.opentv.core.PlayRequests.requestName(names)
         val recId = intent?.getLongExtra(EXTRA_WATCH_RECORDING, 0L) ?: 0L
         if (recId != 0L) {
             app.opentv.core.RecordingSignals.requestWatch(recId, System.currentTimeMillis())
@@ -181,6 +186,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** A reminder notification carries the channel to tune to in this extra. */
         const val EXTRA_PLAY_CHANNEL = "opentv.play_channel"
+
+        /** Free My TV carries the game's broadcaster here, as candidates separated by "|". */
+        const val EXTRA_PLAY_CHANNEL_NAME = "opentv.play_channel_name"
 
         /** A recording auto-switch notification carries the recording to watch in this extra. */
         const val EXTRA_WATCH_RECORDING = "opentv.watch_recording"
@@ -284,6 +292,26 @@ private fun OpenTvApp(isTelevision: Boolean) {
         }
     }
 
+    // A channel asked by name (Free My TV, from a game): try each candidate and tune the first one
+    // this IPTV has. None of them means the person does not carry that broadcaster here — show the
+    // channel list instead of a dead end.
+    val nameRequest by app.opentv.core.PlayRequests.channelName.collectAsState()
+    LaunchedEffect(nameRequest) {
+        val asked = nameRequest ?: return@LaunchedEffect
+        app.opentv.core.PlayRequests.consumeName()
+        val repo = ServiceLocator.get(bootContext).catalogRepository
+        val found = withContext(Dispatchers.IO) {
+            var hit: app.opentv.data.model.Channel? = null
+            for (name in asked.split("|")) {
+                if (name.isBlank()) continue
+                hit = runCatching { repo.searchChannels(name.trim()).first().firstOrNull() }.getOrNull()
+                if (hit != null) break
+            }
+            hit
+        }
+        if (found != null) navController.navigate(Routes.player(found.id)) else navController.navigate(Routes.CHANNELS)
+    }
+
     // Auto-switch: a scheduled recording started, so move the live view onto the recording file
     // (single-connection safe). Ignore a stale request a long-backgrounded app only now sees.
     val watchRequest by app.opentv.core.RecordingSignals.watch.collectAsState()
@@ -320,6 +348,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
             composable(Routes.ADD_SOURCE) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
+                    onRestore = { navController.navigate(Routes.BACKUP) },
                     onFinished = {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.ADD_SOURCE) { inclusive = true }
@@ -441,7 +470,18 @@ private fun OpenTvApp(isTelevision: Boolean) {
             }
 
             composable(Routes.BACKUP) {
-                BackupScreen(onBack = { navController.popBackStack() })
+                BackupScreen(
+                    onBack = { navController.popBackStack() },
+                    onImported = {
+                        // First run (this screen sits on top of "add a provider"): the file brought
+                        // the providers, so go where the person wanted to be — the guide.
+                        if (navController.previousBackStackEntry?.destination?.route == Routes.ADD_SOURCE) {
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(Routes.ADD_SOURCE) { inclusive = true }
+                            }
+                        }
+                    },
+                )
             }
 
             composable(Routes.REC_SETTINGS) {

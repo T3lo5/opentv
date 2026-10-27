@@ -25,4 +25,20 @@ object PlayRequests {
     fun consume() {
         _channelId.value = null
     }
+
+    /**
+     * The same one-shot request, but by channel name — set by Free My TV (app.freemytv), which knows
+     * the game's broadcaster but not which of them this IPTV carries, so it sends the candidates
+     * separated by "|". The nav graph tries each and plays the first one found.
+     */
+    private val _channelName = MutableStateFlow<String?>(null)
+    val channelName: StateFlow<String?> = _channelName.asStateFlow()
+
+    fun requestName(names: String) {
+        if (names.isNotBlank()) _channelName.value = names
+    }
+
+    fun consumeName() {
+        _channelName.value = null
+    }
 }
